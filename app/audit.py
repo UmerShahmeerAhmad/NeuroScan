@@ -10,6 +10,7 @@ log = logging.getLogger("neuroscan.audit")
 
 
 
+
 def record(db: Session, actor: Optional[models.User], action: str,
            target: Optional[str] = None, detail: Optional[str] = None,
            actor_name: Optional[str] = None) -> None:
