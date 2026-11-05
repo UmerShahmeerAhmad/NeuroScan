@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.pth
+*.h5
+*.pt
+*.db
+static/uploads/*
+!static/uploads/.gitkeep
+app/weights/*
+!app/weights/.gitkeep
