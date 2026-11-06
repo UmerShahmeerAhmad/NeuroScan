@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Administration – NeuroScan AI</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2336d1c4'/%3E%3Cpath d='M16 7c-4 0-7 3-7 7 0 2 1 3 1 5 0 3 2 6 6 6s6-3 6-6c0-2 1-3 1-5 0-4-3-7-7-7z' fill='none' stroke='%2304211f' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="/admin">
+        <svg class="brand-mark" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="1" y="1" width="30" height="30" rx="8"/>
+          <path d="M16 7c-4 0-7 3-7 7 0 2 1 3 1 5 0 3 2 6 6 6s6-3 6-6c0-2 1-3 1-5 0-4-3-7-7-7z"/>
+          <path d="M16 8v16"/>
+        </svg>
+        NeuroScan AI
+      </a>
+      <span class="role-tag">Administrator</span>
+      <div class="topbar-user">
+        <span class="avatar" id="userInitials" aria-hidden="true"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn btn-ghost btn-sm" id="logoutBtn" type="button">Log out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container page">
+    <div class="page-head">
+      <h1>Administration</h1>
+      <p>Review doctor registrations and keep an eye on how the system is used.</p>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" data-tab="overview" aria-selected="true" type="button">Overview</button>
+      <button class="tab" role="tab" data-tab="pending" aria-selected="false" type="button">Pending reviews <span class="count" id="pendingCount" hidden>0</span></button>
+      <button class="tab" role="tab" data-tab="doctors" aria-selected="false" type="button">Doctors</button>
+      <button class="tab" role="tab" data-tab="activity" aria-selected="false" type="button">Activity</button>
+    </div>
+
+    <!-- Overview -->
+    <section class="tab-panel" id="tab-overview">
+      <div id="modelAlert" role="alert" hidden></div>
+
+      <div class="alert alert-warn" id="pendingCallout" hidden>
+        <span id="pendingCalloutText"></span>
+        <button class="btn btn-ghost btn-sm" type="button" data-action="go-pending">Review now</button>
+      </div>
+
+      <div class="ledger">
+        <div class="ledger-item"><div class="ledger-value" id="statPending">–</div><div class="ledger-label">Waiting for review</div></div>
+        <div class="ledger-item"><div class="ledger-value" id="statApproved">–</div><div class="ledger-label">Approved doctors</div></div>
+        <div class="ledger-item"><div class="ledger-value" id="statRejected">–</div><div class="ledger-label">Rejected or revoked</div></div>
+        <div class="ledger-item"><div class="ledger-value" id="statScans">–</div><div class="ledger-label">Scans analyzed</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Scans by predicted class</h2>
+            <p class="panel-note" id="modelNote"></p>
+          </div>
+        </div>
+        <div class="dist" id="classBars"></div>
+      </div>
+    </section>
+
+    <!-- Pending reviews -->
+    <section class="tab-panel" id="tab-pending" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Registrations waiting for review</h2>
+            <p class="panel-note">Check each doctor's institution, designation and license number before approving. Approved doctors can log in straight away.</p>
+          </div>
+        </div>
+        <div class="empty" id="pendingEmpty" hidden>
+          <strong>Nothing to review</strong>
+          New registrations will appear here.
+        </div>
+        <div class="table-wrap" id="pendingWrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Doctor</th><th>Institution</th><th>Designation</th><th>License number</th><th>Registered</th><th class="right">Decision</th>
+              </tr>
+            </thead>
+            <tbody id="pendingBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- All doctors -->
+    <section class="tab-panel" id="tab-doctors" hidden>
+      <div class="panel">
+        <div class="panel-head"><h2>Doctors</h2></div>
+        <div class="toolbar">
+          <select class="input" id="statusFilter" aria-label="Filter by status">
+            <option value="all">All statuses</option>
+            <option value="approved">Approved</option>
+            <option value="pending">Pending</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <input class="input grow" id="searchInput" type="search" placeholder="Search by name, email or institution" aria-label="Search doctors">
+        </div>
+        <div class="empty" id="doctorsEmpty" hidden>
+          <strong>No doctors found</strong>
+          Try a different filter or search.
+        </div>
+        <div class="table-wrap" id="doctorsWrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Doctor</th><th>Institution and designation</th><th>License number</th><th>Status</th><th>Registered</th><th class="right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="doctorsBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Activity -->
+    <section class="tab-panel" id="tab-activity" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Recent scans</h2>
+            <p class="panel-note">Images and case references are visible only to the doctor who uploaded them.</p>
+          </div>
+        </div>
+        <div class="empty" id="activityEmpty" hidden>
+          <strong>No scans yet</strong>
+          Scans appear here once doctors start analyzing images.
+        </div>
+        <div class="table-wrap" id="activityWrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>When</th><th>Doctor</th><th>Result</th><th>Confidence</th></tr>
+            </thead>
+            <tbody id="activityBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    (function () {
+      if (!NS.requireAuth('admin')) return;
+      NS.initTopbar();
+
+      var esc = NS.esc;
+      var $ = function (id) { return document.getElementById(id); };
+      var TABS = ['overview', 'pending', 'doctors', 'activity'];
+      var pendingList = [];
+      var doctorList = [];
+
+      /* ------------------------------------------------------------ tabs */
+      function showTab(name) {
+        document.querySelectorAll('.tab').forEach(function (tab) {
+          tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
+        });
+        TABS.forEach(function (t) { $('tab-' + t).hidden = t !== name; });
+        if (history.replaceState) history.replaceState(null, '', '#' + name);
+
+        if (name === 'overview') loadStats();
+        if (name === 'pending') loadPending();
+        if (name === 'doctors') loadDoctors();
+        if (name === 'activity') loadActivity();
+      }
+      document.querySelectorAll('.tab').forEach(function (tab) {
+        tab.addEventListener('click', function () { showTab(tab.dataset.tab); });
+      });
+
+      /* ----------------------------------------------------- small helpers */
+      var STATUS_LABEL = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected' };
+
+      function badge(status) {
+        return '<span class="badge badge-' + esc(status) + '">' + esc(STATUS_LABEL[status] || status) + '</span>';
+      }
+
+      function chip(key) {
+        return '<span class="chip c-' + esc(key) + '"><i></i>' + esc(NS.className(key)) + '</span>';
+      }
+
+      function setPendingBadge(count) {
+        var el = $('pendingCount');
+        el.textContent = count;
+        el.hidden = count === 0;
+      }
+
+      function findDoctor(id) {
+        return pendingList.concat(doctorList).filter(function (d) { return d.id === id; })[0];
+      }
+
+      /* -------------------------------------------------------- overview */
+      async function loadStats() {
+        try {
+          var s = await NS.api('/api/admin/stats');
+          $('statPending').textContent = s.pending;
+          $('statApproved').textContent = s.approved;
+          $('statRejected').textContent = s.rejected;
+          $('statScans').textContent = s.total_scans;
+          setPendingBadge(s.pending);
+
+          var callout = $('pendingCallout');
+          if (s.pending > 0) {
+            $('pendingCalloutText').textContent = s.pending === 1
+              ? '1 registration is waiting for your review.'
+              : s.pending + ' registrations are waiting for your review.';
+            callout.hidden = false;
+          } else {
+            callout.hidden = true;
+          }
+
+          var modelAlert = $('modelAlert');
+          if (s.model_ready) {
+            NS.hideAlert(modelAlert);
+            $('modelNote').textContent = 'The ' + s.model_arch + ' model is loaded and ready.';
+          } else {
+            NS.showAlert(modelAlert, 'The classification model is offline, so doctors cannot analyze scans. ' + (s.model_message || ''), 'warn');
+            $('modelNote').textContent = '';
+          }
+
+          var max = Math.max.apply(null, s.classes.map(function (k) { return s.by_class[k] || 0; }).concat([1]));
+          var box = $('classBars');
+          box.innerHTML = s.classes.map(function (key) {
+            var n = s.by_class[key] || 0;
+            return '<div class="dist-row c-' + esc(key) + ' is-top">' +
+              '<div class="dist-label"><i></i>' + esc(NS.className(key)) + '</div>' +
+              '<div class="dist-track"><div class="dist-fill" style="--w:0%" data-w="' + (n / max * 100).toFixed(1) + '%"></div></div>' +
+              '<div class="dist-value">' + n + '</div></div>';
+          }).join('');
+          NS.animateBars(box);
+        } catch (err) {
+          NS.toast(err.message, 'error');
+        }
+      }
+
+      /* --------------------------------------------------------- pending */
+      function pendingRow(d) {
+        return '<tr>' +
+          '<td><div class="cell-title">' + esc(d.full_name) + '</div><div class="cell-sub">' + esc(d.email) + '</div></td>' +
+          '<td>' + esc(d.institution || '–') + '</td>' +
+          '<td>' + esc(d.designation || '–') + '</td>' +
+          '<td class="nowrap">' + esc(d.license_number || '–') + '</td>' +
+          '<td class="nowrap">' + esc(NS.fmtDate(d.created_at)) + '</td>' +
+          '<td><div class="actions">' +
+            '<button class="btn btn-ok btn-sm" type="button" data-action="approve" data-id="' + d.id + '">Approve</button>' +
+            '<button class="btn btn-danger btn-sm" type="button" data-action="reject" data-id="' + d.id + '">Reject</button>' +
+          '</div></td></tr>';
+      }
+
+      async function loadPending() {
+        try {
+          pendingList = await NS.api('/api/admin/doctors?status=pending');
+          setPendingBadge(pendingList.length);
+          $('pendingEmpty').hidden = pendingList.length > 0;
+          $('pendingWrap').hidden = pendingList.length === 0;
+          $('pendingBody').innerHTML = pendingList.map(pendingRow).join('');
+        } catch (err) {
+          NS.toast(err.message, 'error');
+        }
+      }
+
+      /* --------------------------------------------------------- doctors */
+      function doctorRow(d) {
+        var action = '';
+        if (d.status === 'approved') {
+          action = '<button class="btn btn-danger btn-sm" type="button" data-action="revoke" data-id="' + d.id + '">Revoke access</button>';
+        } else if (d.status === 'rejected') {
+          action = '<button class="btn btn-ok btn-sm" type="button" data-action="approve" data-id="' + d.id + '">Approve</button>';
+        } else {
+          action = '<button class="btn btn-ok btn-sm" type="button" data-action="approve" data-id="' + d.id + '">Approve</button>' +
+                   '<button class="btn btn-danger btn-sm" type="button" data-action="reject" data-id="' + d.id + '">Reject</button>';
+        }
+        var note = d.status === 'rejected' && d.review_note
+          ? '<div class="cell-sub">' + esc(d.review_note) + '</div>' : '';
+
+        return '<tr>' +
+          '<td><div class="cell-title">' + esc(d.full_name) + '</div><div class="cell-sub">' + esc(d.email) + '</div></td>' +
+          '<td>' + esc(d.institution || '–') + '<div class="cell-sub">' + esc(d.designation || '') + '</div></td>' +
+          '<td class="nowrap">' + esc(d.license_number || '–') + '</td>' +
+          '<td>' + badge(d.status) + note + '</td>' +
+          '<td class="nowrap">' + esc(NS.fmtDate(d.created_at)) + '</td>' +
+          '<td><div class="actions">' + action + '</div></td></tr>';
+      }
+
+      function renderDoctors() {
+        var term = $('searchInput').value.trim().toLowerCase();
+        var rows = doctorList.filter(function (d) {
+          if (!term) return true;
+          return [d.full_name, d.email, d.institution].join(' ').toLowerCase().indexOf(term) !== -1;
+        });
+        $('doctorsEmpty').hidden = rows.length > 0;
+        $('doctorsWrap').hidden = rows.length === 0;
+        $('doctorsBody').innerHTML = rows.map(doctorRow).join('');
+      }
+
+      async function loadDoctors() {
+        try {
+          doctorList = await NS.api('/api/admin/doctors?status=' + encodeURIComponent($('statusFilter').value));
+          renderDoctors();
+        } catch (err) {
+          NS.toast(err.message, 'error');
+        }
+      }
+      $('statusFilter').addEventListener('change', loadDoctors);
+      $('searchInput').addEventListener('input', renderDoctors);
+
+      /* -------------------------------------------------------- activity */
+      async function loadActivity() {
+        try {
+          var rows = await NS.api('/api/admin/activity');
+          $('activityEmpty').hidden = rows.length > 0;
+          $('activityWrap').hidden = rows.length === 0;
+          $('activityBody').innerHTML = rows.map(function (r) {
+            return '<tr>' +
+              '<td class="nowrap">' + esc(NS.fmtDate(r.created_at)) + '</td>' +
+              '<td><div class="cell-title">' + esc(r.doctor_name) + '</div><div class="cell-sub">' + esc(r.doctor_institution || '') + '</div></td>' +
+              '<td>' + chip(r.predicted_class) + '</td>' +
+              '<td class="nowrap">' + esc(NS.fmtPct(r.confidence)) + (r.low_confidence ? '<span class="badge badge-review">Low</span>' : '') + '</td>' +
+              '</tr>';
+          }).join('');
+        } catch (err) {
+          NS.toast(err.message, 'error');
+        }
+      }
+
+      /* ----------------------------------------------------- review actions */
+      async function review(button, id, action, json, message) {
+        button.disabled = true;
+        try {
+          await NS.api('/api/admin/doctors/' + id + '/' + action, { method: 'POST', json: json });
+          NS.toast(message, 'success');
+          await Promise.all([loadStats(), loadPending(), loadDoctors()]);
+        } catch (err) {
+          NS.toast(err.message, 'error');
+          button.disabled = false;
+        }
+      }
+
+      document.addEventListener('click', async function (event) {
+        var button = event.target.closest('[data-action]');
+        if (!button) return;
+
+        var action = button.dataset.action;
+        if (action === 'go-pending') { showTab('pending'); return; }
+
+        var id = Number(button.dataset.id);
+        var doctor = findDoctor(id);
+        var name = doctor ? doctor.full_name : 'This doctor';
+
+        if (action === 'approve') {
+          await review(button, id, 'approve', undefined, name + ' can now log in.');
+          return;
+        }
+
+        var revoking = action === 'revoke';
+        var answer = await NS.dialog({
+          title: revoking ? 'Revoke access' : 'Reject registration',
+          message: revoking
+            ? name + ' will be logged out and cannot log in again until you approve them.'
+            : name + ' will not be able to log in.',
+          input: {
+            label: 'Reason (shown to the doctor)',
+            placeholder: revoking ? 'e.g. License could not be renewed' : 'e.g. License number could not be verified',
+            maxlength: 300
+          },
+          confirmText: revoking ? 'Revoke access' : 'Reject registration',
+          danger: true
+        });
+        if (!answer) return;
+        await review(button, id, 'reject', { reason: answer.value }, revoking ? 'Access revoked for ' + name + '.' : name + ' was rejected.');
+      });
+
+      /* ----------------------------------------------------------- start */
+      var start = location.hash.replace('#', '');
+      if (TABS.indexOf(start) === -1) start = 'overview';
+      if (start !== 'overview') loadStats();   // keeps the pending counter correct on other tabs
+      showTab(start);
+    })();
+  </script>
+</body>
+</html>

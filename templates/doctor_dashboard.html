@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brain MRI analysis – NeuroScan AI</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2336d1c4'/%3E%3Cpath d='M16 7c-4 0-7 3-7 7 0 2 1 3 1 5 0 3 2 6 6 6s6-3 6-6c0-2 1-3 1-5 0-4-3-7-7-7z' fill='none' stroke='%2304211f' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="/doctor">
+        <svg class="brand-mark" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="1" y="1" width="30" height="30" rx="8"/>
+          <path d="M16 7c-4 0-7 3-7 7 0 2 1 3 1 5 0 3 2 6 6 6s6-3 6-6c0-2 1-3 1-5 0-4-3-7-7-7z"/>
+          <path d="M16 8v16"/>
+        </svg>
+        NeuroScan AI
+      </a>
+      <span class="role-tag">Doctor</span>
+      <div class="topbar-user">
+        <span class="avatar" id="userInitials" aria-hidden="true"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn btn-ghost btn-sm" id="logoutBtn" type="button">Log out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container page">
+    <div class="page-head">
+      <h1>Brain MRI analysis</h1>
+      <p>Upload an MRI slice to get a classification, a confidence score and the probability for every class.</p>
+    </div>
+
+    <div id="modelBanner" role="alert" hidden></div>
+
+    <div class="ledger" id="summary" aria-label="Your scan totals"></div>
+
+    <div class="workspace">
+      <!-- Left: choose an image -->
+      <section class="panel" aria-labelledby="newScanTitle">
+        <div class="panel-head"><h2 id="newScanTitle">New scan</h2></div>
+
+        <div class="viewer" id="viewer" tabindex="0" role="button" aria-label="Choose an MRI image">
+          <img class="viewer-img" id="previewImg" alt="Preview of the selected MRI image" hidden>
+          <div class="viewer-empty" id="viewerEmpty">
+            <strong>Drop an MRI image here</strong>
+            or select a file. JPG or PNG, up to 10 MB.
+          </div>
+        </div>
+        <input type="file" id="fileInput" accept="image/png,image/jpeg" hidden>
+
+        <div class="file-line" id="fileLine" hidden>
+          <span id="fileName"></span>
+          <button class="btn btn-ghost btn-sm" id="changeBtn" type="button">Choose another</button>
+        </div>
+
+        <div class="field">
+          <label for="patientRef">Case reference <span class="optional">(optional)</span></label>
+          <input class="input" id="patientRef" type="text" maxlength="80" placeholder="e.g. case number">
+          <p class="hint">Use a case number, not the patient's name.</p>
+        </div>
+
+        <button class="btn btn-primary btn-block" id="analyzeBtn" type="button" disabled>Analyze scan</button>
+      </section>
+
+      <!-- Right: the reading -->
+      <section class="panel" aria-labelledby="resultTitle" aria-live="polite">
+        <div class="panel-head"><h2 id="resultTitle">Reading</h2></div>
+        <div id="resultBody">
+          <div class="result-state">
+            <strong>No reading yet</strong>
+            <p>Select an image and choose Analyze scan. The result appears here.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- History -->
+    <section class="panel" style="margin-top:24px" aria-labelledby="historyTitle">
+      <div class="panel-head">
+        <div>
+          <h2 id="historyTitle">Scan history</h2>
+          <p class="panel-note">Only you can see these scans.</p>
+        </div>
+      </div>
+      <div class="empty" id="historyEmpty" hidden>
+        <strong>No scans yet</strong>
+        Analyzed scans are saved here so you can review them later.
+      </div>
+      <div class="table-wrap" id="historyWrap" hidden>
+        <table class="data-table">
+          <thead>
+            <tr><th>Date</th><th>Case reference</th><th>Result</th><th>Confidence</th><th class="right">Actions</th></tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    (function () {
+      if (!NS.requireAuth('doctor')) return;
+      NS.initTopbar();
+
+      var esc = NS.esc;
+      var $ = function (id) { return document.getElementById(id); };
+      var MAX_BYTES = 10 * 1024 * 1024;
+      var DISCLAIMER = 'This reading supports clinical judgment. It does not replace a radiologist\u2019s diagnosis.';
+
+      var selectedFile = null;
+      var previewUrl = null;
+      var historyRows = [];
+
+      /* ------------------------------------------------------ choose a file */
+      var viewer = $('viewer');
+      var input = $('fileInput');
+
+      viewer.addEventListener('click', function () { input.click(); });
+      viewer.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); input.click(); }
+      });
+      ['dragenter', 'dragover'].forEach(function (name) {
+        viewer.addEventListener(name, function (event) { event.preventDefault(); viewer.classList.add('drag'); });
+      });
+      ['dragleave', 'drop'].forEach(function (name) {
+        viewer.addEventListener(name, function (event) { event.preventDefault(); viewer.classList.remove('drag'); });
+      });
+      viewer.addEventListener('drop', function (event) {
+        var file = event.dataTransfer && event.dataTransfer.files[0];
+        if (file) setFile(file);
+      });
+      input.addEventListener('change', function () { if (input.files[0]) setFile(input.files[0]); });
+      $('changeBtn').addEventListener('click', function () { input.click(); });
+
+      function setFile(file) {
+        var okType = /^image\/(jpeg|png)$/.test(file.type) || /\.(jpe?g|png)$/i.test(file.name);
+        if (!okType) { NS.toast('Please choose a JPG or PNG image.', 'error'); return; }
+        if (file.size > MAX_BYTES) { NS.toast('That image is larger than 10 MB.', 'error'); return; }
+
+        selectedFile = file;
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(file);
+
+        $('previewImg').src = previewUrl;
+        $('previewImg').hidden = false;
+        $('viewerEmpty').hidden = true;
+        $('fileName').textContent = file.name;
+        $('fileLine').hidden = false;
+        $('analyzeBtn').disabled = false;
+      }
+
+      /* ----------------------------------------------------------- analyze */
+      $('analyzeBtn').addEventListener('click', async function () {
+        if (!selectedFile) return;
+        var button = $('analyzeBtn');
+        NS.setLoading(button, true, 'Analyzing…');
+        $('resultBody').innerHTML =
+          '<div class="result-state"><span class="spinner big" aria-hidden="true"></span><p>Analyzing the scan…</p></div>';
+
+        var form = new FormData();
+        form.append('file', selectedFile);
+        form.append('patient_ref', $('patientRef').value.trim());
+
+        try {
+          var result = await NS.api('/api/doctor/predict', { method: 'POST', form: form });
+          renderResult(result);
+          await Promise.all([loadHistory(), loadSummary()]);
+        } catch (err) {
+          var box = $('resultBody');
+          box.innerHTML = '';
+          var note = document.createElement('div');
+          note.className = 'alert alert-error';
+          note.textContent = err.message;
+          box.appendChild(note);
+        } finally {
+          NS.setLoading(button, false);
+          button.disabled = !selectedFile;
+        }
+      });
+
+      function renderResult(r) {
+        var box = $('resultBody');
+        box.innerHTML =
+          '<div class="result-enter">' +
+            '<div class="result-head c-' + esc(r.predicted_class) + '">' +
+              '<div><div class="result-label">Predicted class</div><div class="result-class">' + esc(NS.className(r.predicted_class)) + '</div></div>' +
+              '<div class="result-conf"><span class="result-conf-value">' + esc(NS.fmtPct(r.confidence)) + '</span><span class="muted">confidence</span></div>' +
+            '</div>' +
+            (r.low_confidence
+              ? '<div class="alert alert-warn"><strong>Low confidence.</strong> The model is not sure about this scan. Check it manually before relying on the result.</div>'
+              : '') +
+            '<div class="dist">' + NS.distHtml(r.probabilities, r.predicted_class) + '</div>' +
+            '<p class="disclaimer">' + esc(DISCLAIMER) + '</p>' +
+            '<p class="result-meta">Saved to your history' + (r.patient_ref ? ' as ' + esc(r.patient_ref) : '') + '.</p>' +
+          '</div>';
+        NS.animateBars(box);
+      }
+
+      /* ------------------------------------------------------------ summary */
+      async function loadSummary() {
+        try {
+          var s = await NS.api('/api/doctor/summary');
+
+          var banner = $('modelBanner');
+          if (s.model_ready) NS.hideAlert(banner);
+          else NS.showAlert(banner, 'The classification model is offline. Scans cannot be analyzed until the administrator restores it.', 'warn');
+
+          var items = '<div class="ledger-item"><div class="ledger-value">' + s.total + '</div><div class="ledger-label">Scans analyzed</div></div>';
+          s.classes.forEach(function (key) {
+            items += '<div class="ledger-item c-' + esc(key) + '"><div class="ledger-value">' + (s.by_class[key] || 0) +
+              '</div><div class="ledger-label">' + esc(NS.className(key)) + '</div></div>';
+          });
+          $('summary').innerHTML = items;
+        } catch (err) {
+          NS.toast(err.message, 'error');
+        }
+      }
+
+      /* ------------------------------------------------------------ history */
+      async function loadHistory() {
+        try {
+          historyRows = await NS.api('/api/doctor/history');
+          renderHistory();
+        } catch (err) {
+          NS.toast(err.message, 'error');
+        }
+      }
+
+      function renderHistory() {
+        $('historyEmpty').hidden = historyRows.length > 0;
+        $('historyWrap').hidden = historyRows.length === 0;
+        $('historyBody').innerHTML = historyRows.map(function (r) {
+          return '<tr>' +
+            '<td class="nowrap">' + esc(NS.fmtDate(r.created_at)) + '</td>' +
+            '<td>' + (r.patient_ref ? esc(r.patient_ref) : '<span class="muted">–</span>') + '</td>' +
+            '<td><span class="chip c-' + esc(r.predicted_class) + '"><i></i>' + esc(NS.className(r.predicted_class)) + '</span></td>' +
+            '<td class="nowrap c-' + esc(r.predicted_class) + '">' + esc(NS.fmtPct(r.confidence)) +
+              '<span class="mini"><i style="--w:' + (r.confidence * 100).toFixed(0) + '%"></i></span>' +
+              (r.low_confidence ? '<span class="badge badge-review">Review</span>' : '') + '</td>' +
+            '<td><div class="actions">' +
+              '<button class="btn btn-ghost btn-sm" type="button" data-action="view" data-id="' + r.id + '">View</button>' +
+              '<button class="btn btn-danger btn-sm" type="button" data-action="delete" data-id="' + r.id + '">Delete</button>' +
+            '</div></td></tr>';
+        }).join('');
+      }
+
+      document.addEventListener('click', function (event) {
+        var button = event.target.closest('[data-action]');
+        if (!button) return;
+        var id = Number(button.dataset.id);
+        if (button.dataset.action === 'view') viewScan(id);
+        if (button.dataset.action === 'delete') deleteScan(id);
+      });
+
+      async function viewScan(id) {
+        var row = historyRows.filter(function (r) { return r.id === id; })[0];
+        if (!row) return;
+
+        var blobUrl = null;
+        var wrap = document.createElement('div');
+        wrap.innerHTML =
+          '<h3>Scan details</h3>' +
+          '<div class="modal-split">' +
+            '<div class="viewer viewer-static">' +
+              '<img class="viewer-img" alt="Uploaded MRI image" hidden>' +
+              '<div class="viewer-empty">Loading image…</div>' +
+            '</div>' +
+            '<div class="c-' + esc(row.predicted_class) + '">' +
+              '<div class="result-head">' +
+                '<div><div class="result-label">Predicted class</div><div class="result-class">' + esc(NS.className(row.predicted_class)) + '</div></div>' +
+                '<div class="result-conf"><span class="result-conf-value">' + esc(NS.fmtPct(row.confidence)) + '</span><span class="muted">confidence</span></div>' +
+              '</div>' +
+              '<dl class="detail-list">' +
+                '<dt>Date</dt><dd>' + esc(NS.fmtDate(row.created_at)) + '</dd>' +
+                '<dt>Case reference</dt><dd>' + esc(row.patient_ref || '–') + '</dd>' +
+                '<dt>File</dt><dd>' + esc(row.original_filename || '–') + '</dd>' +
+                '<dt>Model</dt><dd>' + esc(row.model_name || '–') + '</dd>' +
+              '</dl>' +
+              '<div class="dist">' + NS.distHtml(row.probabilities, row.predicted_class) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<p class="disclaimer">' + esc(DISCLAIMER) + '</p>' +
+          '<div class="modal-actions"><button class="btn btn-ghost" type="button" data-close>Close</button></div>';
+
+        var handle = NS.openModal(wrap, {
+          wide: true,
+          onClose: function () { if (blobUrl) URL.revokeObjectURL(blobUrl); }
+        });
+        wrap.querySelector('[data-close]').addEventListener('click', handle.close);
+        NS.animateBars(wrap);
+
+        try {
+          var blob = await NS.api('/api/doctor/predictions/' + id + '/image', { blob: true });
+          blobUrl = URL.createObjectURL(blob);
+          var img = wrap.querySelector('img');
+          img.src = blobUrl;
+          img.hidden = false;
+          wrap.querySelector('.viewer-empty').hidden = true;
+        } catch (err) {
+          wrap.querySelector('.viewer-empty').textContent = 'The image is no longer available.';
+        }
+      }
+
+      async function deleteScan(id) {
+        var answer = await NS.dialog({
+          title: 'Delete this scan?',
+          message: 'The image and its result will be removed from your history. This cannot be undone.',
+          confirmText: 'Delete scan',
+          danger: true
+        });
+        if (!answer) return;
+        try {
+          await NS.api('/api/doctor/predictions/' + id, { method: 'DELETE' });
+          NS.toast('Scan deleted.', 'success');
+          await Promise.all([loadHistory(), loadSummary()]);
+        } catch (err) {
+          NS.toast(err.message, 'error');
+        }
+      }
+
+      /* -------------------------------------------------------------- start */
+      loadSummary();
+      loadHistory();
+    })();
+  </script>
+</body>
+</html>

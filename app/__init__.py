@@ -1,0 +1,1 @@
+"""NeuroScan AI backend package."""

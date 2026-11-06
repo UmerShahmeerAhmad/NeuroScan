@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeuroScan AI: brain MRI classification for verified doctors</title>
+  <meta name="description" content="Upload a brain MRI and get a tumor classification with a confidence score. Access is limited to doctors verified by the administrator.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2336d1c4'/%3E%3Cpath d='M16 7c-4 0-7 3-7 7 0 2 1 3 1 5 0 3 2 6 6 6s6-3 6-6c0-2 1-3 1-5 0-4-3-7-7-7z' fill='none' stroke='%2304211f' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <header class="container site-nav">
+    <a class="brand" href="/" aria-label="NeuroScan AI home">
+      <svg class="brand-mark" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="1" y="1" width="30" height="30" rx="8"/>
+        <path d="M16 7c-4 0-7 3-7 7 0 2 1 3 1 5 0 3 2 6 6 6s6-3 6-6c0-2 1-3 1-5 0-4-3-7-7-7z"/>
+        <path d="M16 8v16"/>
+      </svg>
+      NeuroScan AI
+    </a>
+    <nav class="site-links" aria-label="Main">
+      <a href="#access">How access works</a>
+      <a href="#reports">What it reports</a>
+      <span id="navAuth" style="display:contents">
+        <a class="btn btn-ghost btn-sm" href="/login">Log in</a>
+        <a class="btn btn-primary btn-sm" href="/signup">Request access</a>
+      </span>
+    </nav>
+  </header>
+
+  <main>
+    <section class="container hero">
+      <div>
+        <h1>A second read on every brain MRI</h1>
+        <p class="lead">Upload an MRI slice and see whether the model finds a glioma, a meningioma, a pituitary tumor or no tumor, with a confidence score for each. Access is limited to doctors the administrator has verified.</p>
+        <div class="hero-actions" id="heroActions">
+          <a class="btn btn-primary" href="/signup">Request doctor access</a>
+          <a class="btn btn-ghost" href="/login">Log in</a>
+        </div>
+        <p class="fine">NeuroScan AI supports clinical judgment. It does not replace a radiologist's diagnosis.</p>
+      </div>
+
+      <div class="hero-art">
+        <svg class="scan-svg" viewBox="0 0 480 520" role="img" aria-label="Illustration of an axial brain MRI slice with a highlighted region and a scan line passing over it">
+          <defs>
+            <clipPath id="skullClip"><ellipse cx="240" cy="262" rx="172" ry="206"/></clipPath>
+            <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#36d1c4" stop-opacity="0"/>
+              <stop offset=".5" stop-color="#36d1c4"/>
+              <stop offset="1" stop-color="#36d1c4" stop-opacity="0"/>
+            </linearGradient>
+            <linearGradient id="trailGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#36d1c4" stop-opacity="0"/>
+              <stop offset="1" stop-color="#36d1c4" stop-opacity=".22"/>
+            </linearGradient>
+            <radialGradient id="brainGlow" cx=".5" cy=".5" r=".6">
+              <stop offset="0" stop-color="#4a6aa0" stop-opacity=".3"/>
+              <stop offset="1" stop-color="#4a6aa0" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+
+          <!-- viewer frame -->
+          <path d="M20 60V20H60M420 20H460V60M460 460V500H420M60 500H20V460" fill="none" stroke="#36d1c4" stroke-opacity=".55" stroke-width="2"/>
+
+          <!-- skull and brain -->
+          <ellipse cx="240" cy="262" rx="172" ry="206" fill="url(#brainGlow)" stroke="#33466a" stroke-width="2"/>
+          <ellipse cx="240" cy="262" rx="150" ry="184" fill="#0c1a30" fill-opacity=".6" stroke="#5a74a3" stroke-width="2"/>
+
+          <g fill="none" stroke="#5a74a3" stroke-width="2" stroke-linecap="round" opacity=".9">
+            <path d="M240 82C236 150 244 210 240 262S236 380 240 440"/>
+            <g id="hemisphere">
+              <path d="M226 96C196 92 168 108 156 134C146 156 160 168 150 190C140 214 118 220 120 248"/>
+              <path d="M226 150C208 146 190 156 186 172C182 190 198 196 192 214C186 232 166 232 164 252"/>
+              <path d="M222 214C204 212 192 224 194 240C196 256 178 262 176 280C174 298 190 306 186 322"/>
+              <path d="M120 300C128 330 150 346 176 352C196 357 210 372 214 392"/>
+              <path d="M150 330C162 346 180 350 192 340"/>
+              <path d="M130 190C150 186 166 196 170 212"/>
+              <path d="M236 236C222 220 204 226 205 246C206 266 226 278 236 266Z" fill="#05101f"/>
+            </g>
+            <use href="#hemisphere" transform="translate(480 0) scale(-1 1)"/>
+          </g>
+
+          <!-- the region of interest -->
+          <circle cx="310" cy="200" r="22" fill="#e7eef9" fill-opacity=".16"/>
+          <circle cx="310" cy="200" r="10" fill="#e7eef9" fill-opacity=".24"/>
+          <circle class="ring" cx="310" cy="200" r="38" fill="none" stroke="#36d1c4" stroke-width="1.5" stroke-dasharray="7 7"/>
+
+          <!-- scan line -->
+          <g clip-path="url(#skullClip)">
+            <g class="scan-line">
+              <rect x="60" y="30" width="360" height="40" fill="url(#trailGrad)"/>
+              <rect x="60" y="69" width="360" height="2" fill="url(#lineGrad)"/>
+            </g>
+          </g>
+        </svg>
+
+        <div class="readout c-meningioma" aria-hidden="true">
+          <div class="readout-title">Example reading (illustration)</div>
+          <div class="readout-class">Meningioma</div>
+          <div class="readout-conf">97.8% confidence</div>
+          <div class="dist">
+            <div class="dist-row c-meningioma is-top"><div class="dist-label"><i></i>Meningioma</div><div class="dist-track"><div class="dist-fill" style="--w:97.8%"></div></div><div class="dist-value">97.8%</div></div>
+            <div class="dist-row c-glioma"><div class="dist-label"><i></i>Glioma</div><div class="dist-track"><div class="dist-fill" style="--w:1.4%"></div></div><div class="dist-value">1.4%</div></div>
+            <div class="dist-row c-pituitary"><div class="dist-label"><i></i>Pituitary</div><div class="dist-track"><div class="dist-fill" style="--w:0.5%"></div></div><div class="dist-value">0.5%</div></div>
+            <div class="dist-row c-notumor"><div class="dist-label"><i></i>No tumor</div><div class="dist-track"><div class="dist-fill" style="--w:0.3%"></div></div><div class="dist-value">0.3%</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" id="access">
+      <div class="container">
+        <div class="band-head">
+          <h2>How access works</h2>
+          <p>Every doctor is checked by a person before they can upload a single image.</p>
+        </div>
+        <ol class="steps">
+          <li>
+            <h3>Register with your details</h3>
+            <p>Enter your name, institution, designation and medical license number.</p>
+          </li>
+          <li>
+            <h3>The administrator verifies you</h3>
+            <p>Your details are reviewed and your account is approved or declined. If it is declined, you are told why.</p>
+          </li>
+          <li>
+            <h3>Upload an MRI image</h3>
+            <p>Once approved, log in and drop in a JPG or PNG slice. Add a case reference if you want to find it later.</p>
+          </li>
+          <li>
+            <h3>Read the result</h3>
+            <p>See the predicted class, the confidence, and the probability for every class. Each scan is saved to your private history.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="band" id="reports">
+      <div class="container reports">
+        <div>
+          <h2>What a reading includes</h2>
+          <dl class="report-list">
+            <div class="c-glioma">
+              <dt><i></i>Glioma</dt>
+              <dd>A tumor that arises from the brain's glial cells.</dd>
+            </div>
+            <div class="c-meningioma">
+              <dt><i></i>Meningioma</dt>
+              <dd>Usually a slow-growing tumor of the membranes around the brain.</dd>
+            </div>
+            <div class="c-pituitary">
+              <dt><i></i>Pituitary tumor</dt>
+              <dd>A growth in the pituitary gland at the base of the brain.</dd>
+            </div>
+            <div class="c-notumor">
+              <dt><i></i>No tumor</dt>
+              <dd>No tumor pattern found in the submitted slice.</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="safeguards">
+          <h2>Built around trust</h2>
+          <h3>Doctors only</h3>
+          <p>Institution, designation and license number are checked before an account can log in, and access can be withdrawn at any time.</p>
+          <h3>Private by default</h3>
+          <p>Uploaded images are shown only to the doctor who uploaded them. The administrator sees activity totals, never images or case references.</p>
+          <h3>Honest about uncertainty</h3>
+          <p>Every result shows the full probability breakdown, and low-confidence readings are flagged for manual review.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>NeuroScan AI is a final year project. Its readings are decision support and do not replace a radiologist's diagnosis.</p>
+    </div>
+  </footer>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    // If the visitor is already logged in, offer the dashboard instead of login/signup.
+    (function () {
+      if (!NS.isLoggedIn()) return;
+      var href = NS.homeFor(NS.getUser());
+      document.getElementById('navAuth').innerHTML = '<a class="btn btn-primary btn-sm" href="' + href + '">Open dashboard</a>';
+      document.getElementById('heroActions').innerHTML = '<a class="btn btn-primary" href="' + href + '">Open dashboard</a>';
+    })();
+  </script>
+</body>
+</html>
