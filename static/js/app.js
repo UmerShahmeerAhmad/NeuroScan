@@ -57,6 +57,7 @@
             return String(isoString);
         }
     }
+    
 
     function distHtml(probabilities, predictedClass) {
         if (!probabilities) return '';
