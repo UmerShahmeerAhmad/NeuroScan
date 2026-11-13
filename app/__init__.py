@@ -1,1 +1,1 @@
-"""NeuroScan AI backend package."""
+"""NeuroScan AI backend packages."""
