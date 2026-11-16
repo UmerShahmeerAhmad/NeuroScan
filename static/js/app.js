@@ -41,6 +41,7 @@
         return (num * 100).toFixed(1) + '%';
     }
 
+    
     function fmtDate(isoString) {
         if (!isoString) return '–';
         try {
