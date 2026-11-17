@@ -6,9 +6,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
-from app.config import settings
 from app.database import get_db
 from app.dependencies import require_admin
+from app.ml.model_loader import class_names, review_threshold
 from app.ml.model_loader import status as model_status
 from app.schemas import ActivityOut, AdminStatsOut, RejectRequest, UserOut
 
@@ -61,10 +61,10 @@ def stats(db: Session = Depends(get_db)):
         "rejected": counts.get(models.STATUS_REJECTED, 0),
         "total_scans": sum(by_class.values()),
         "by_class": by_class,
-        "classes": settings.CLASS_NAMES,
+        "classes": class_names(),
         "model_ready": state["ready"],
         "model_message": state["message"],
-        "model_arch": settings.MODEL_ARCH,
+        "model_arch": state["label"],
     }
 
 
@@ -135,7 +135,7 @@ def activity(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)
             "doctor_institution": doctor.institution,
             "predicted_class": prediction.predicted_class,
             "confidence": prediction.confidence,
-            "low_confidence": prediction.confidence < settings.CONFIDENCE_THRESHOLD,
+            "low_confidence": prediction.confidence < review_threshold(),
             "created_at": prediction.created_at,
         }
         for prediction, doctor in rows

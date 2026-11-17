@@ -58,20 +58,27 @@ created automatically when the app starts.
 
 ## Model settings
 
-These live in `.env` and must match your training:
+**MS-CBAM-Net (the notebook's checkpoint).** Copy the `.pth` file to `app/weights/model.pth`
+(or set `MODEL_PATH`). Nothing else is needed: the file carries its own class names, normalisation
+numbers and rejection data, and the app rebuilds the network from `app/ml/mscbam_net.py`. Predictions
+use the notebook's preprocessing (resize 256, centre crop 224, AutoContrast) and flip test-time
+augmentation, and results match the notebook's `predict_image`.
 
-| Setting | Meaning |
-|---|---|
-| `MODEL_ARCH` | `resnet50`, `vgg16`, `densenet121` or `mobilenet_v2` |
-| `MODEL_PATH` | Path to the weights file |
-| `CLASS_NAMES` | Class names in training order (alphabetical if you used ImageFolder) |
-| `IMAGE_SIZE`, `NORM_MEAN`, `NORM_STD`, `USE_AUTOCONTRAST` | Preprocessing |
-| `CONFIDENCE_THRESHOLD` | Results below this are flagged for manual review |
+Two reliability checks run on every image:
 
-If your network has a custom classification head, edit `_build_architecture` in
-`app/ml/model_loader.py` so the layer names and shapes match your training code.
-If the model cannot be loaded, the website still runs. The admin overview explains
-what is wrong, and doctors see a short "model offline" notice.
+| Check | What it does | Default |
+|---|---|---|
+| Distance (Mahalanobis) | Is the image's feature vector close to the training MRIs? | **Rejects** the image: it is not classified and not saved |
+| Confidence and entropy | Is the model sure enough? | **Flags** the scan for manual review, but still classifies it |
+
+Turn either into the other behaviour with `REJECT_ON_DISTANCE` and `REJECT_ON_CONFIDENCE` in `.env`.
+
+**Standard networks.** For a plain weights file of `resnet50`, `vgg16`, `densenet121` or `mobilenet_v2`,
+set `MODEL_ARCH`, `CLASS_NAMES`, `IMAGE_SIZE`, `NORM_MEAN`, `NORM_STD` and `USE_AUTOCONTRAST` to match
+your training. For any other custom network, add its class to `app/ml` and load it in `model_loader.py`.
+
+If the model cannot be loaded, the website still runs. The admin overview explains what is wrong,
+and doctors see a short "model offline" notice.
 
 ## Project structure
 
@@ -90,8 +97,9 @@ app/
     doctor_routes.py Predict, history, image, delete
     pages.py         Serves the HTML pages
   ml/
+    mscbam_net.py    MS-CBAM-Net architecture and distance check
     model_loader.py  Loads the PyTorch model once
-    predict.py       Preprocessing and inference
+    predict.py       Preprocessing, inference, rejection checks
   weights/           Put your .pth file here
 static/
   css/style.css      Design system
@@ -111,7 +119,7 @@ templates/           index, login, signup, admin_dashboard, doctor_dashboard
 | `POST /api/admin/doctors/{id}/approve` | Admin | Approve |
 | `POST /api/admin/doctors/{id}/reject` | Admin | Reject or revoke, with a reason |
 | `GET /api/admin/activity` | Admin | Recent scans (no images) |
-| `POST /api/doctor/predict` | Approved doctor | Upload an MRI, get a prediction |
+| `POST /api/doctor/predict` | Approved doctor | Upload an MRI, get a prediction (or a rejection) |
 | `GET /api/doctor/history` | Approved doctor | Own scan history |
 | `GET /api/doctor/predictions/{id}/image` | Owner only | The uploaded image |
 | `DELETE /api/doctor/predictions/{id}` | Owner only | Delete a scan |

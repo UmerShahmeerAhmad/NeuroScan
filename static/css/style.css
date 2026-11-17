@@ -313,6 +313,15 @@ select.input { cursor: pointer; }
 .detail-list dt { color: var(--muted); }
 .detail-list dd { margin: 0; word-break: break-word; }
 
+/* ---------- rejected result and reliability checks ---------- */
+.mini-title { margin: 22px 0 8px; font-size: .95rem; font-weight: 600; }
+.reason-list { margin: 0 0 14px; padding-left: 20px; }
+.reason-list li { margin-bottom: 4px; }
+details.raw { margin-top: 18px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: var(--r-ctl); background: var(--film); }
+details.raw summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: .92rem; }
+details.raw[open] summary { margin-bottom: 10px; }
+details.raw .dist { margin-top: 12px; }
+
 /* ---------- modal and toasts ---------- */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px;

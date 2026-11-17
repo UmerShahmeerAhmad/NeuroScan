@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.config import settings
+from app.ml.model_loader import review_threshold
 
 
 # ------------------------------------------------------------------ requests
@@ -86,6 +86,34 @@ class PredictionOut(BaseModel):
     created_at: datetime
 
 
+class ReliabilityChecks(BaseModel):
+    max_prob: float
+    entropy: float
+    distance: Optional[float] = None
+    distance_limit: Optional[float] = None
+    confidence_limit: Optional[float] = None
+    entropy_limit: Optional[float] = None
+    distance_ok: Optional[bool] = None
+    confidence_ok: bool
+
+
+class PredictResponse(BaseModel):
+    """What the upload returns. A rejected image is not saved, so it has no id."""
+
+    rejected: bool = False
+    reject_reasons: List[str] = []
+    id: Optional[int] = None
+    patient_ref: Optional[str] = None
+    original_filename: Optional[str] = None
+    predicted_class: str
+    confidence: float
+    probabilities: Dict[str, float]
+    model_name: Optional[str] = None
+    low_confidence: bool = False
+    created_at: Optional[datetime] = None
+    checks: Optional[ReliabilityChecks] = None
+
+
 class ActivityOut(BaseModel):
     id: int
     doctor_name: str
@@ -127,7 +155,7 @@ def prediction_out(row) -> dict:
         "confidence": row.confidence,
         "probabilities": json.loads(row.probabilities),
         "model_name": row.model_name,
-        "low_confidence": row.confidence < settings.CONFIDENCE_THRESHOLD,
+        "low_confidence": row.confidence < review_threshold(),
         "created_at": row.created_at,
     }
 

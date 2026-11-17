@@ -182,7 +182,39 @@
         }
       });
 
+      function checksHtml(c) {
+        if (!c) return '';
+        var rows = '';
+        if (c.distance !== null && c.distance !== undefined) {
+          rows += '<dt>Looks like a training MRI</dt><dd>' + (c.distance_ok ? 'Yes' : 'No') +
+            ' <span class="muted">(distance ' + esc(c.distance) + ', limit ' + esc(c.distance_limit) + ')</span></dd>';
+        }
+        rows += '<dt>Model is confident</dt><dd>' + (c.confidence_ok ? 'Yes' : 'No') +
+          ' <span class="muted">(' + esc(NS.fmtPct(c.max_prob)) +
+          (c.confidence_limit ? ', needs ' + esc(NS.fmtPct(c.confidence_limit)) : '') + ')</span></dd>';
+        return '<h3 class="mini-title">Reliability checks</h3><dl class="detail-list">' + rows + '</dl>';
+      }
+
+      function renderRejected(r) {
+        var box = $('resultBody');
+        var reasons = (r.reject_reasons || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('');
+        box.innerHTML =
+          '<div class="result-enter">' +
+            '<div class="alert alert-warn"><strong>This image was not classified.</strong></div>' +
+            '<ul class="reason-list">' + reasons + '</ul>' +
+            '<p>Check that the file is a single brain MRI slice and try again. A tumor type is not shown, because ' +
+              'a guess on an image like this could mislead. Nothing from this upload was saved to your history.</p>' +
+            checksHtml(r.checks) +
+            '<details class="raw"><summary>Show the model\u2019s raw output</summary>' +
+              '<p class="muted">For reference only. This is not a reliable result.</p>' +
+              '<div class="dist">' + NS.distHtml(r.probabilities, r.predicted_class) + '</div>' +
+            '</details>' +
+          '</div>';
+        NS.animateBars(box);
+      }
+
       function renderResult(r) {
+        if (r.rejected) { renderRejected(r); return; }
         var box = $('resultBody');
         box.innerHTML =
           '<div class="result-enter">' +
@@ -191,9 +223,10 @@
               '<div class="result-conf"><span class="result-conf-value">' + esc(NS.fmtPct(r.confidence)) + '</span><span class="muted">confidence</span></div>' +
             '</div>' +
             (r.low_confidence
-              ? '<div class="alert alert-warn"><strong>Low confidence.</strong> The model is not sure about this scan. Check it manually before relying on the result.</div>'
+              ? '<div class="alert alert-warn"><strong>Review manually.</strong> The model\u2019s confidence is below its own limit for this scan. Check it before relying on the result.</div>'
               : '') +
             '<div class="dist">' + NS.distHtml(r.probabilities, r.predicted_class) + '</div>' +
+            checksHtml(r.checks) +
             '<p class="disclaimer">' + esc(DISCLAIMER) + '</p>' +
             '<p class="result-meta">Saved to your history' + (r.patient_ref ? ' as ' + esc(r.patient_ref) : '') + '.</p>' +
           '</div>';

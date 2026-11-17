@@ -16,10 +16,10 @@ from app import models
 from app.config import settings
 from app.database import get_db
 from app.dependencies import require_doctor
-from app.ml.model_loader import ModelNotReadyError
+from app.ml.model_loader import ModelNotReadyError, class_names, review_threshold
 from app.ml.model_loader import status as model_status
 from app.ml.predict import run_prediction
-from app.schemas import MessageOut, PredictionOut, SummaryOut, prediction_list, prediction_out
+from app.schemas import MessageOut, PredictionOut, PredictResponse, SummaryOut, prediction_list, prediction_out
 
 log = logging.getLogger("neuroscan.doctor")
 
@@ -65,7 +65,7 @@ def _file_path(row: models.Prediction) -> Path:
     return path
 
 
-@router.post("/predict", response_model=PredictionOut)
+@router.post("/predict", response_model=PredictResponse)
 def predict(
     file: UploadFile = File(...),
     patient_ref: Optional[str] = Form(None),
@@ -96,6 +96,20 @@ def predict(
         log.exception("Prediction failed")
         raise HTTPException(status_code=500, detail="The model could not process this image.")
 
+    # An image the model should not classify (it does not look like a brain MRI) is
+    # reported back but never saved: no file on disk, no row in the history.
+    if result.get("rejected"):
+        return {
+            "rejected": True,
+            "reject_reasons": result["reject_reasons"],
+            "predicted_class": result["predicted_class"],
+            "confidence": result["confidence"],
+            "probabilities": result["probabilities"],
+            "model_name": result["model_name"],
+            "low_confidence": True,
+            "checks": result["checks"],
+        }
+
     # Save the image under a random name, then record the result.
     settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{extension}"
@@ -121,7 +135,14 @@ def predict(
         stored_path.unlink(missing_ok=True)  # do not leave an orphan file behind
         raise
 
-    return prediction_out(row)
+    saved = prediction_out(row)
+    checks = result.get("checks")
+    # Flag for manual review when the confidence is below the model's own limit.
+    saved["low_confidence"] = bool(saved["low_confidence"] or (checks and not checks["confidence_ok"]))
+    saved["rejected"] = False
+    saved["reject_reasons"] = []
+    saved["checks"] = checks
+    return saved
 
 
 @router.get("/history", response_model=List[PredictionOut])
@@ -153,7 +174,7 @@ def summary(doctor: models.User = Depends(require_doctor), db: Session = Depends
     return {
         "total": sum(by_class.values()),
         "by_class": by_class,
-        "classes": settings.CLASS_NAMES,
+        "classes": class_names(),
         "model_ready": ready,
         "model_message": None if ready else MODEL_OFFLINE_MESSAGE,
     }

@@ -81,7 +81,8 @@ class Settings:
     ADMIN_PASSWORD: str = _required("ADMIN_PASSWORD")
 
     # --- Model ---
-    MODEL_ARCH: str = _text("MODEL_ARCH", "resnet50").lower()
+    # "auto" reads the architecture from the checkpoint. Only needed for plain state_dict files.
+    MODEL_ARCH: str = _text("MODEL_ARCH", "auto").lower()
     MODEL_PATH: Path = _path(_text("MODEL_PATH", "app/weights/model.pth"))
     CLASS_NAMES: List[str] = _list("CLASS_NAMES", "glioma,meningioma,notumor,pituitary")
     IMAGE_SIZE: int = _int("IMAGE_SIZE", 224)
@@ -89,6 +90,14 @@ class Settings:
     NORM_MEAN: List[float] = _floats("NORM_MEAN", "0.485,0.456,0.406")
     NORM_STD: List[float] = _floats("NORM_STD", "0.229,0.224,0.225")
     CONFIDENCE_THRESHOLD: float = _float("CONFIDENCE_THRESHOLD", 0.70)
+
+    # Out-of-distribution checks (used when the checkpoint contains them, as MS-CBAM-Net's does).
+    # Distance check: rejects images that do not look like the training MRIs.
+    # In the training notebook it caught 100% of 'other' images with 5.5% false rejections.
+    REJECT_ON_DISTANCE: bool = _bool("REJECT_ON_DISTANCE", True)
+    # Confidence/entropy check: in the notebook it caught only 1.6% of 'other' images and wrongly
+    # rejected 11% of real MRIs, so by default it only flags a scan for manual review.
+    REJECT_ON_CONFIDENCE: bool = _bool("REJECT_ON_CONFIDENCE", False)
 
     # --- Uploads and folders ---
     MAX_UPLOAD_MB: int = _int("MAX_UPLOAD_MB", 10)
