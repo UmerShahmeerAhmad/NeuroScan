@@ -184,6 +184,7 @@ class AdminStatsOut(BaseModel):
     model_ready: bool
     model_message: Optional[str] = None
     model_arch: str
+    email_configured: bool = False
 
 
 # ------------------------------------------------------------------- helpers

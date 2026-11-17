@@ -45,6 +45,10 @@
     <!-- Overview -->
     <section class="tab-panel" id="tab-overview">
       <div id="modelAlert" role="alert" hidden></div>
+      <div class="alert alert-info" id="emailAlert" hidden>
+        <span id="emailAlertText"></span>
+        <button class="btn btn-ghost btn-sm" type="button" id="testEmailBtn">Send test email</button>
+      </div>
 
       <div class="alert alert-warn" id="pendingCallout" hidden>
         <span id="pendingCalloutText"></span>
@@ -297,6 +301,12 @@
             callout.hidden = true;
           }
 
+          var ea = $('emailAlert');
+          $('emailAlertText').textContent = s.email_configured
+            ? 'Email is set up. Doctors get approval notices and you get new-registration alerts.'
+            : 'Email is not set up, so no emails are sent (they are printed in the server terminal). Add the SMTP settings to .env to switch it on.';
+          ea.hidden = false;
+
           var modelAlert = $('modelAlert');
           if (s.model_ready) {
             NS.hideAlert(modelAlert);
@@ -411,6 +421,16 @@
           NS.toast(err.message, 'error');
         }
       }
+
+      $('testEmailBtn').addEventListener('click', async function () {
+        var b = this; b.disabled = true;
+        try {
+          var r = await NS.api('/api/admin/test-email', { method: 'POST' });
+          if (r.sent) NS.toast('Test email sent to ' + r.to + '. Check your inbox and spam folder.', 'success');
+          else { $('emailAlert').className = 'alert alert-warn'; $('emailAlertText').textContent = 'Email could not be sent: ' + r.problem; }
+        } catch (err) { NS.toast(err.message, 'error'); }
+        b.disabled = false;
+      });
 
       /* ------------------------------------------------------- analytics */
       function bars(box, items, total) {

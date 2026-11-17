@@ -79,6 +79,8 @@ class Settings:
     ADMIN_NAME: str = _text("ADMIN_NAME", "System Administrator")
     ADMIN_EMAIL: str = _required("ADMIN_EMAIL").lower()
     ADMIN_PASSWORD: str = _required("ADMIN_PASSWORD")
+    # Where "new doctor registration" alerts and the test email go. Defaults to the admin login email.
+    ADMIN_NOTIFY_EMAIL: str = _text("ADMIN_NOTIFY_EMAIL", "") or ADMIN_EMAIL
 
     # --- Model ---
     # "auto" reads the architecture from the checkpoint. Only needed for plain state_dict files.

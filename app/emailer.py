@@ -13,9 +13,15 @@ def email_configured() -> bool:
     return bool(settings.SMTP_HOST)
 
 
+last_error = ""   # why the most recent send failed (shown to the admin by the test button)
+
+
 def send_email(to: str, subject: str, body: str) -> bool:
     """Returns True if it was handed to a mail server. Never raises: email must not break a request."""
+    global last_error
+    last_error = ""
     if not email_configured():
+        last_error = "SMTP_HOST is empty in .env, so email is switched off."
         log.warning("EMAIL NOT SENT (SMTP_HOST is empty). Printing it here instead.\n"
                     "To: %s\nSubject: %s\n\n%s", to, subject, body)
         return False
@@ -36,7 +42,8 @@ def send_email(to: str, subject: str, body: str) -> bool:
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.send_message(message)
         return True
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        last_error = f"{type(exc).__name__}: {exc}"
         log.exception("Could not send email to %s", to)
         return False
 
@@ -61,3 +68,10 @@ def reset_email(name: str, link: str) -> tuple:
             f"Hello {name},\n\nUse this link to choose a new password. It works once and expires in "
             f"{settings.RESET_TOKEN_MINUTES} minutes:\n{link}\n\nIf you did not ask for this, ignore this email; "
             f"your password stays the same.{SIGNATURE}")
+
+
+def new_registration_email(doctor) -> tuple:
+    return (f"New doctor registration: {doctor.full_name}",
+            f"A doctor is waiting for your review.\n\nName: {doctor.full_name}\nEmail: {doctor.email}\n"
+            f"Institution: {doctor.institution}\nDesignation: {doctor.designation}\n"
+            f"License number: {doctor.license_number}\n\nReview it here:\n{settings.APP_BASE_URL}/admin#pending{SIGNATURE}")

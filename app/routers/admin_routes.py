@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import audit, emailer, models
+from app.config import settings
 from app.database import get_db
 from app.dependencies import require_admin
 from app.ml.model_loader import class_names, review_threshold
@@ -68,7 +69,18 @@ def stats(db: Session = Depends(get_db)):
         "model_ready": state["ready"],
         "model_message": state["message"],
         "model_arch": state["label"],
+        "email_configured": emailer.email_configured(),
     }
+
+
+@router.post("/test-email")
+def test_email(admin: models.User = Depends(require_admin)):
+    """Sends a test message to ADMIN_NOTIFY_EMAIL and says what went wrong, if anything."""
+    sent = emailer.send_email(
+        settings.ADMIN_NOTIFY_EMAIL, "NeuroScan AI test email",
+        "If you can read this, email is working. Doctors will now get approval notices and reset links.",
+    )
+    return {"sent": sent, "to": settings.ADMIN_NOTIFY_EMAIL, "problem": None if sent else emailer.last_error}
 
 
 @router.get("/doctors", response_model=List[UserOut])

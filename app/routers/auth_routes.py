@@ -113,7 +113,7 @@ def _token_for(user: models.User) -> dict:
 
 
 @router.post("/signup", response_model=MessageOut, status_code=201)
-def signup(payload: DoctorSignup, db: Session = Depends(get_db)):
+def signup(payload: DoctorSignup, background: BackgroundTasks, db: Session = Depends(get_db)):
     """Doctors register here. They start as 'pending' until the admin approves them."""
     email = payload.email.strip().lower()
 
@@ -138,6 +138,8 @@ def signup(payload: DoctorSignup, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
 
     audit.record(db, doctor, "doctor_signup", target=email, detail=f"Institution: {doctor.institution}")
+    subject, body = emailer.new_registration_email(doctor)
+    background.add_task(emailer.send_email, settings.ADMIN_NOTIFY_EMAIL, subject, body)   # tell the administrator
     return {"message": "Registration received. The administrator will review your details."}
 
 
