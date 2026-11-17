@@ -85,6 +85,14 @@
           <p class="panel-note">Only you can see these scans.</p>
         </div>
       </div>
+      <div class="filters" id="filters">
+        <div class="field grow"><label for="fQ">Case reference or file name</label><input class="input" id="fQ" type="search" placeholder="Search"></div>
+        <div class="field"><label for="fClass">Result</label><select class="input" id="fClass"><option value="">All results</option></select></div>
+        <div class="field"><label for="fFrom">From</label><input class="input" id="fFrom" type="date"></div>
+        <div class="field"><label for="fTo">To</label><input class="input" id="fTo" type="date"></div>
+        <button class="btn btn-ghost btn-sm" id="fClear" type="button">Clear</button>
+        <button class="btn btn-ghost btn-sm" id="fExport" type="button">Export CSV</button>
+      </div>
       <div class="empty" id="historyEmpty" hidden>
         <strong>No scans yet</strong>
         Analyzed scans are saved here so you can review them later.
@@ -168,6 +176,7 @@
         try {
           var result = await NS.api('/api/doctor/predict', { method: 'POST', form: form });
           renderResult(result);
+          ['fQ', 'fClass', 'fFrom', 'fTo'].forEach(function (id) { $(id).value = ''; });   // show the new scan
           await Promise.all([loadHistory(), loadSummary()]);
         } catch (err) {
           var box = $('resultBody');
@@ -249,15 +258,52 @@
               '</div><div class="ledger-label">' + esc(NS.className(key)) + '</div></div>';
           });
           $('summary').innerHTML = items;
+          var sel = $('fClass');
+          if (sel.options.length === 1) {
+            s.classes.forEach(function (key) {
+              var o = document.createElement('option'); o.value = key; o.textContent = NS.className(key); sel.appendChild(o);
+            });
+          }
         } catch (err) {
           NS.toast(err.message, 'error');
         }
       }
 
       /* ------------------------------------------------------------ history */
+      function filterQuery() {
+        var p = new URLSearchParams();
+        if ($('fQ').value.trim()) p.set('q', $('fQ').value.trim());
+        if ($('fClass').value) p.set('class', $('fClass').value);
+        // Dates are your local days: from the start of "From" to the end of "To".
+        if ($('fFrom').value) p.set('date_from', new Date($('fFrom').value + 'T00:00:00').toISOString());
+        if ($('fTo').value) {
+          var end = new Date($('fTo').value + 'T00:00:00'); end.setDate(end.getDate() + 1);
+          p.set('date_to', end.toISOString());
+        }
+        return p.toString();
+      }
+      var filterTimer = null;
+      function refilter() { clearTimeout(filterTimer); filterTimer = setTimeout(loadHistory, 250); }
+      ['fQ', 'fClass', 'fFrom', 'fTo'].forEach(function (id) {
+        $(id).addEventListener(id === 'fQ' ? 'input' : 'change', refilter);
+      });
+      $('fClear').addEventListener('click', function () {
+        ['fQ', 'fClass', 'fFrom', 'fTo'].forEach(function (id) { $(id).value = ''; });
+        loadHistory();
+      });
+      $('fExport').addEventListener('click', async function () {
+        try {
+          var blob = await NS.api('/api/doctor/history/export.csv?' + filterQuery(), { blob: true });
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob); a.download = 'neuroscan-history.csv';
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+        } catch (err) { NS.toast(err.message, 'error'); }
+      });
+
       async function loadHistory() {
         try {
-          historyRows = await NS.api('/api/doctor/history');
+          historyRows = await NS.api('/api/doctor/history?' + filterQuery());
           renderHistory();
         } catch (err) {
           NS.toast(err.message, 'error');
@@ -267,6 +313,9 @@
       function renderHistory() {
         $('historyEmpty').hidden = historyRows.length > 0;
         $('historyWrap').hidden = historyRows.length === 0;
+        $('historyEmpty').innerHTML = filterQuery()
+          ? '<strong>No scans match</strong>Try different filters or press Clear.'
+          : '<strong>No scans yet</strong>Analyzed scans are saved here so you can review them later.';
         $('historyBody').innerHTML = historyRows.map(function (r) {
           return '<tr>' +
             '<td class="nowrap">' + esc(NS.fmtDate(r.created_at)) + '</td>' +
@@ -274,7 +323,8 @@
             '<td><span class="chip c-' + esc(r.predicted_class) + '"><i></i>' + esc(NS.className(r.predicted_class)) + '</span></td>' +
             '<td class="nowrap c-' + esc(r.predicted_class) + '">' + esc(NS.fmtPct(r.confidence)) +
               '<span class="mini"><i style="--w:' + (r.confidence * 100).toFixed(0) + '%"></i></span>' +
-              (r.low_confidence ? '<span class="badge badge-review">Review</span>' : '') + '</td>' +
+              (r.low_confidence ? '<span class="badge badge-review">Review</span>' : '') +
+              (r.feedback ? '<span class="badge badge-' + esc(r.feedback) + '">' + (r.feedback === 'agree' ? 'Agreed' : 'Disagreed') + '</span>' : '') + '</td>' +
             '<td><div class="actions">' +
               '<button class="btn btn-ghost btn-sm" type="button" data-action="view" data-id="' + r.id + '">View</button>' +
               '<button class="btn btn-danger btn-sm" type="button" data-action="delete" data-id="' + r.id + '">Delete</button>' +
@@ -322,6 +372,15 @@
                 '<dt>Model</dt><dd>' + esc(row.model_name || '–') + '</dd>' +
               '</dl>' +
               '<div class="dist">' + NS.distHtml(row.probabilities, row.predicted_class) + '</div>' +
+              '<div class="fb">' +
+                '<h4 class="mini-title">Do you agree with this result?</h4>' +
+                '<div class="fb-row">' +
+                  '<button class="btn btn-ghost btn-sm" type="button" data-fb="agree" aria-pressed="false">Agree</button>' +
+                  '<button class="btn btn-ghost btn-sm" type="button" data-fb="disagree" aria-pressed="false">Disagree</button>' +
+                '</div>' +
+                '<textarea class="input textarea" id="fbNote" rows="2" maxlength="500" placeholder="Optional note, for example what you think it is"></textarea>' +
+                '<div class="actions" style="margin-top:8px"><button class="btn btn-primary btn-sm" type="button" data-fbsave disabled>Save feedback</button><span class="muted" id="fbStatus" style="font-size:.85rem"></span></div>' +
+              '</div>' +
             '</div>' +
           '</div>' +
           '<p class="disclaimer">' + esc(DISCLAIMER) + '</p>' +
@@ -360,6 +419,28 @@
           });
         });
         setMode('scan');
+
+        var verdict = row.feedback || null;
+        var saveBtn = wrap.querySelector('[data-fbsave]');
+        var noteEl2 = wrap.querySelector('#fbNote');
+        noteEl2.value = row.feedback_note || '';
+        function paintFb() {
+          wrap.querySelectorAll('[data-fb]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.fb === verdict)); });
+        }
+        paintFb();
+        wrap.querySelectorAll('[data-fb]').forEach(function (b) {
+          b.addEventListener('click', function () { verdict = b.dataset.fb; paintFb(); saveBtn.disabled = false; });
+        });
+        noteEl2.addEventListener('input', function () { if (verdict) saveBtn.disabled = false; });
+        saveBtn.addEventListener('click', async function () {
+          saveBtn.disabled = true;
+          try {
+            var saved = await NS.api('/api/doctor/predictions/' + id + '/feedback', { method: 'POST', json: { verdict: verdict, note: noteEl2.value.trim() || null } });
+            row.feedback = saved.feedback; row.feedback_note = saved.feedback_note;
+            wrap.querySelector('#fbStatus').textContent = 'Saved.';
+            renderHistory();
+          } catch (err) { NS.toast(err.message, 'error'); saveBtn.disabled = false; }
+        });
         wrap.querySelector('[data-pdf]').addEventListener('click', async function (e) {
           var btn = e.currentTarget; var label = btn.textContent;
           btn.disabled = true; btn.textContent = 'Preparing PDF…';

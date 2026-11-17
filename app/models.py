@@ -44,6 +44,8 @@ class User(Base):
     reviewed_by = Column(Integer, ForeignKey("users.id"))
 
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    # Tokens issued before this moment are no longer accepted (set when the password changes).
+    password_changed_at = Column(DateTime(timezone=True))
 
     predictions = relationship(
         "Prediction", back_populates="doctor", cascade="all, delete-orphan"
@@ -69,4 +71,36 @@ class Prediction(Base):
 
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
 
+    # The doctor's own opinion of the result: "agree" or "disagree", with an optional note.
+    feedback = Column(String(10))
+    feedback_note = Column(Text)
+    feedback_at = Column(DateTime(timezone=True))
+
     doctor = relationship("User", back_populates="predictions")
+
+
+class AuditLog(Base):
+    """Who did what, and when. Never holds images or patient references."""
+
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    actor_id = Column(Integer)                 # no foreign key: the log must outlive deleted users
+    actor_name = Column(String(160))
+    action = Column(String(50), nullable=False, index=True)
+    target_label = Column(String(255))
+    detail = Column(Text)
+
+
+class PasswordResetToken(Base):
+    """A one-time link for choosing a new password. Only the hash of the token is stored."""
+
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)

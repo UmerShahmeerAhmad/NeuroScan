@@ -99,6 +99,21 @@ class Settings:
     # rejected 11% of real MRIs, so by default it only flags a scan for manual review.
     REJECT_ON_CONFIDENCE: bool = _bool("REJECT_ON_CONFIDENCE", False)
 
+    # --- Login protection ---
+    # After this many wrong passwords for one email from one address, login is blocked for a while.
+    LOGIN_MAX_ATTEMPTS: int = _int("LOGIN_MAX_ATTEMPTS", 5)
+    LOGIN_WINDOW_MINUTES: int = _int("LOGIN_WINDOW_MINUTES", 15)
+
+    # --- Email (optional). Leave SMTP_HOST empty to print emails in the terminal instead. ---
+    APP_BASE_URL: str = _text("APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+    SMTP_HOST: str = _text("SMTP_HOST", "")
+    SMTP_PORT: int = _int("SMTP_PORT", 587)
+    SMTP_USER: str = _text("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_FROM: str = _text("SMTP_FROM", "NeuroScan AI <no-reply@neuroscan.local>")
+    SMTP_TLS: bool = _bool("SMTP_TLS", True)
+    RESET_TOKEN_MINUTES: int = _int("RESET_TOKEN_MINUTES", 30)
+
     # --- Uploads and folders ---
     MAX_UPLOAD_MB: int = _int("MAX_UPLOAD_MB", 10)
     MAX_UPLOAD_BYTES: int = MAX_UPLOAD_MB * 1024 * 1024

@@ -9,6 +9,14 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from app.ml.model_loader import review_threshold
 
 
+def check_password_rules(value: str) -> str:
+    if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
+        raise ValueError("must include at least one letter and one number.")
+    if len(value.encode("utf-8")) > 72:  # bcrypt limit
+        raise ValueError("is too long.")
+    return value
+
+
 # ------------------------------------------------------------------ requests
 class DoctorSignup(BaseModel):
     full_name: str = Field(min_length=3, max_length=120)
@@ -29,16 +37,31 @@ class DoctorSignup(BaseModel):
     @field_validator("password")
     @classmethod
     def strong_enough(cls, value: str) -> str:
-        if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
-            raise ValueError("must include at least one letter and one number.")
-        if len(value.encode("utf-8")) > 72:  # bcrypt limit
-            raise ValueError("is too long.")
-        return value
+        return check_password_rules(value)
 
 
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=1, max_length=200)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+    password: str = Field(min_length=8, max_length=64)
+
+    @field_validator("password")
+    @classmethod
+    def strong_enough(cls, value: str) -> str:
+        return check_password_rules(value)
+
+
+class FeedbackRequest(BaseModel):
+    verdict: str = Field(pattern="^(agree|disagree)$")
+    note: Optional[str] = Field(default=None, max_length=500)
 
 
 class RejectRequest(BaseModel):
@@ -84,6 +107,9 @@ class PredictionOut(BaseModel):
     model_name: Optional[str] = None
     low_confidence: bool
     created_at: datetime
+    feedback: Optional[str] = None
+    feedback_note: Optional[str] = None
+    feedback_at: Optional[datetime] = None
 
 
 class ReliabilityChecks(BaseModel):
@@ -124,6 +150,22 @@ class ActivityOut(BaseModel):
     created_at: datetime
 
 
+class AuditOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    actor_name: Optional[str] = None
+    action: str
+    target_label: Optional[str] = None
+    detail: Optional[str] = None
+
+
+class ResetLinkOut(BaseModel):
+    message: str
+    link: Optional[str] = None   # only filled in when email is not set up, so the admin can pass it on
+
+
 class SummaryOut(BaseModel):
     total: int
     by_class: Dict[str, int]
@@ -157,6 +199,9 @@ def prediction_out(row) -> dict:
         "model_name": row.model_name,
         "low_confidence": row.confidence < review_threshold(),
         "created_at": row.created_at,
+        "feedback": row.feedback,
+        "feedback_note": row.feedback_note,
+        "feedback_at": row.feedback_at,
     }
 
 

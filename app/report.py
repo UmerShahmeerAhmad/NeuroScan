@@ -3,6 +3,7 @@ import io
 import json
 from datetime import timezone
 from typing import Optional
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -78,6 +79,12 @@ def build_report(row, doctor, image_png: Optional[bytes], heatmap_png: Optional[
     if low_confidence:
         story.append(Spacer(1, 4))
         story.append(Paragraph("<b>Review manually.</b> The model's confidence is below its own limit for this scan.", body))
+
+    if getattr(row, "feedback", None):
+        story.append(Spacer(1, 4))
+        verdict = "agrees" if row.feedback == "agree" else "disagrees"
+        note = f" Note: {escape(row.feedback_note)}" if row.feedback_note else ""
+        story.append(Paragraph(f"<b>Doctor feedback:</b> the doctor {verdict} with this result.{note}", body))
 
     # images side by side
     cells, captions = [], []

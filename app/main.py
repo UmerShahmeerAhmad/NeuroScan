@@ -15,7 +15,7 @@ from sqlalchemy.exc import OperationalError
 from app import models
 from app.auth import hash_password
 from app.config import settings
-from app.database import Base, SessionLocal, engine
+from app.database import Base, SessionLocal, engine, upgrade_schema
 from app.ml.model_loader import ensure_loaded
 from app.routers import admin_routes, auth_routes, doctor_routes, pages
 
@@ -56,6 +56,9 @@ async def lifespan(app: FastAPI):
             "DATABASE_URL in .env has the right user, password, host and database name."
         )
         raise
+    added = upgrade_schema()
+    if added:
+        log.info("Database updated, new columns: %s", ", ".join(added))
     seed_admin()
     ensure_loaded()  # try to load the model now; if it fails the site still starts
     yield
