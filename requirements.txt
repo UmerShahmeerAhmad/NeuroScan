@@ -11,3 +11,4 @@ pillow>=10.3
 numpy>=1.26
 torch>=2.2
 torchvision>=0.17
+reportlab>=4.0

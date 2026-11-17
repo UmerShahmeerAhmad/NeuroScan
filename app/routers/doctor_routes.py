@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from app.dependencies import require_doctor
 from app.ml.model_loader import ModelNotReadyError, class_names, review_threshold
 from app.ml.model_loader import status as model_status
 from app.ml.predict import run_prediction
+from app.report import build_report
 from app.schemas import MessageOut, PredictionOut, PredictResponse, SummaryOut, prediction_list, prediction_out
 
 log = logging.getLogger("neuroscan.doctor")
@@ -193,6 +194,67 @@ def prediction_image(
         raise HTTPException(status_code=404, detail="Image file not found.")
     media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, max-age=3600"})
+
+
+def _heatmap_png(path: Path) -> bytes:
+    """Grad-CAM overlay for a saved scan. Raises HTTPException when it cannot be made."""
+    from app.ml.gradcam import make_heatmap
+
+    try:
+        with Image.open(path) as img:
+            img.load()
+            png, _ = make_heatmap(img)
+        return png
+    except ModelNotReadyError as exc:
+        log.error("Heatmap unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail=MODEL_OFFLINE_MESSAGE)
+    except Exception:
+        log.exception("Heatmap failed")
+        raise HTTPException(status_code=500, detail="The heatmap could not be created for this scan.")
+
+
+@router.get("/predictions/{prediction_id}/heatmap")
+def prediction_heatmap(
+    prediction_id: int,
+    doctor: models.User = Depends(require_doctor),
+    db: Session = Depends(get_db),
+):
+    """Grad-CAM heatmap over the scan (made on request, not stored)."""
+    row = _own_prediction(db, prediction_id, doctor)
+    path = _file_path(row)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Image file not found.")
+    return Response(_heatmap_png(path), media_type="image/png", headers={"Cache-Control": "private, max-age=600"})
+
+
+@router.get("/predictions/{prediction_id}/report")
+def prediction_report(
+    prediction_id: int,
+    doctor: models.User = Depends(require_doctor),
+    db: Session = Depends(get_db),
+):
+    """A PDF report for one of the doctor's own scans."""
+    row = _own_prediction(db, prediction_id, doctor)
+    path = _file_path(row)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Image file not found.")
+
+    # Show the picture the model saw (JPEG/PNG re-encoded as PNG so the PDF library can read it).
+    with Image.open(path) as img:
+        img.load()
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="PNG")
+        image_png = buf.getvalue()
+    try:
+        heatmap = _heatmap_png(path)
+    except HTTPException:
+        heatmap = None  # the report is still useful without the heatmap
+
+    saved = prediction_out(row)
+    pdf = build_report(row, doctor, image_png, heatmap, bool(saved["low_confidence"]))
+    name = f"neuroscan-report-{row.id}.pdf"
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
 
 @router.delete("/predictions/{prediction_id}", response_model=MessageOut)

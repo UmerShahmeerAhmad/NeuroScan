@@ -100,6 +100,8 @@ app/
     mscbam_net.py    MS-CBAM-Net architecture and distance check
     model_loader.py  Loads the PyTorch model once
     predict.py       Preprocessing, inference, rejection checks
+    gradcam.py       Grad-CAM heatmap
+  report.py          PDF report builder
   weights/           Put your .pth file here
 static/
   css/style.css      Design system
@@ -122,6 +124,8 @@ templates/           index, login, signup, admin_dashboard, doctor_dashboard
 | `POST /api/doctor/predict` | Approved doctor | Upload an MRI, get a prediction (or a rejection) |
 | `GET /api/doctor/history` | Approved doctor | Own scan history |
 | `GET /api/doctor/predictions/{id}/image` | Owner only | The uploaded image |
+| `GET /api/doctor/predictions/{id}/heatmap` | Owner only | Grad-CAM heatmap (PNG, made on request) |
+| `GET /api/doctor/predictions/{id}/report` | Owner only | PDF report of the scan |
 | `DELETE /api/doctor/predictions/{id}` | Owner only | Delete a scan |
 
 ## Security notes

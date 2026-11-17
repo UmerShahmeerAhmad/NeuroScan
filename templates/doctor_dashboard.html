@@ -229,6 +229,7 @@
             checksHtml(r.checks) +
             '<p class="disclaimer">' + esc(DISCLAIMER) + '</p>' +
             '<p class="result-meta">Saved to your history' + (r.patient_ref ? ' as ' + esc(r.patient_ref) : '') + '.</p>' +
+            '<div class="actions"><button class="btn btn-ghost btn-sm" type="button" data-action="view" data-id="' + r.id + '">Heatmap and PDF report</button></div>' +
           '</div>';
         NS.animateBars(box);
       }
@@ -298,9 +299,16 @@
         wrap.innerHTML =
           '<h3>Scan details</h3>' +
           '<div class="modal-split">' +
-            '<div class="viewer viewer-static">' +
-              '<img class="viewer-img" alt="Uploaded MRI image" hidden>' +
-              '<div class="viewer-empty">Loading image…</div>' +
+            '<div>' +
+              '<div class="viewer viewer-static">' +
+                '<img class="viewer-img" alt="Uploaded MRI image" hidden>' +
+                '<div class="viewer-empty">Loading image…</div>' +
+              '</div>' +
+              '<div class="actions" style="margin-top:10px">' +
+                '<button class="btn btn-ghost btn-sm" type="button" data-img="scan" aria-pressed="true">Original</button>' +
+                '<button class="btn btn-ghost btn-sm" type="button" data-img="heat" aria-pressed="false">Heatmap</button>' +
+              '</div>' +
+              '<p class="muted heat-note" hidden style="font-size:.8rem;margin-top:6px">Red marks the areas that influenced the model most. It is a visual aid, not a tumor outline.</p>' +
             '</div>' +
             '<div class="c-' + esc(row.predicted_class) + '">' +
               '<div class="result-head">' +
@@ -317,11 +325,54 @@
             '</div>' +
           '</div>' +
           '<p class="disclaimer">' + esc(DISCLAIMER) + '</p>' +
-          '<div class="modal-actions"><button class="btn btn-ghost" type="button" data-close>Close</button></div>';
+          '<div class="modal-actions"><button class="btn btn-primary" type="button" data-pdf>Download PDF report</button><button class="btn btn-ghost" type="button" data-close>Close</button></div>';
 
+        var heatUrl = null;
         var handle = NS.openModal(wrap, {
           wide: true,
-          onClose: function () { if (blobUrl) URL.revokeObjectURL(blobUrl); }
+          onClose: function () { if (blobUrl) URL.revokeObjectURL(blobUrl); if (heatUrl) URL.revokeObjectURL(heatUrl); }
+        });
+        var imgEl = wrap.querySelector('img');
+        var emptyEl = wrap.querySelector('.viewer-empty');
+        var noteEl = wrap.querySelector('.heat-note');
+        function setMode(mode) {
+          wrap.querySelectorAll('[data-img]').forEach(function (b) {
+            b.setAttribute('aria-pressed', String(b.dataset.img === mode));
+            b.classList.toggle('btn-primary', b.dataset.img === mode);
+          });
+          noteEl.hidden = mode !== 'heat';
+        }
+        wrap.querySelectorAll('[data-img]').forEach(function (b) {
+          b.addEventListener('click', async function () {
+            if (b.dataset.img === 'scan') { if (blobUrl) imgEl.src = blobUrl; setMode('scan'); return; }
+            if (!heatUrl) {
+              b.disabled = true; b.textContent = 'Creating…';
+              try {
+                var hb = await NS.api('/api/doctor/predictions/' + id + '/heatmap', { blob: true });
+                heatUrl = URL.createObjectURL(hb);
+              } catch (err) {
+                NS.toast ? NS.toast(err.message || 'The heatmap could not be created.', 'error') : alert(err.message);
+                b.disabled = false; b.textContent = 'Heatmap'; return;
+              }
+              b.disabled = false; b.textContent = 'Heatmap';
+            }
+            imgEl.src = heatUrl; setMode('heat');
+          });
+        });
+        setMode('scan');
+        wrap.querySelector('[data-pdf]').addEventListener('click', async function (e) {
+          var btn = e.currentTarget; var label = btn.textContent;
+          btn.disabled = true; btn.textContent = 'Preparing PDF…';
+          try {
+            var pb = await NS.api('/api/doctor/predictions/' + id + '/report', { blob: true });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(pb); a.download = 'neuroscan-report-' + id + '.pdf';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+          } catch (err) {
+            NS.toast ? NS.toast(err.message || 'The report could not be created.', 'error') : alert(err.message);
+          }
+          btn.disabled = false; btn.textContent = label;
         });
         wrap.querySelector('[data-close]').addEventListener('click', handle.close);
         NS.animateBars(wrap);
