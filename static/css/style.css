@@ -313,6 +313,15 @@ select.input { cursor: pointer; }
 .detail-list dt { color: var(--muted); }
 .detail-list dd { margin: 0; word-break: break-word; }
 
+/* ---------- rejected result and reliability checks ---------- */
+.mini-title { margin: 22px 0 8px; font-size: .95rem; font-weight: 600; }
+.reason-list { margin: 0 0 14px; padding-left: 20px; }
+.reason-list li { margin-bottom: 4px; }
+details.raw { margin-top: 18px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: var(--r-ctl); background: var(--film); }
+details.raw summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: .92rem; }
+details.raw[open] summary { margin-bottom: 10px; }
+details.raw .dist { margin-top: 12px; }
+
 /* ---------- modal and toasts ---------- */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px;
@@ -465,3 +474,17 @@ select.input { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+
+/* ---------- analytics chart, history filters, feedback ---------- */
+.daychart { display: flex; align-items: flex-end; gap: 3px; height: 180px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.daychart i { flex: 1; min-width: 2px; background: var(--signal); border-radius: 3px 3px 0 0; opacity: .85; }
+.daychart i:hover { opacity: 1; }
+.daychart-axis { display: flex; justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: .85rem; }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 16px; }
+.filters .field { margin: 0; }
+.filters label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 4px; }
+.fb-row { display: flex; gap: 10px; margin: 12px 0 8px; }
+.fb-row .btn[aria-pressed="true"] { border-color: var(--signal); color: var(--signal); }
+.badge-agree { color: var(--ok); border-color: rgba(74, 222, 154, .4); background: rgba(74, 222, 154, .1); margin-left: 8px; }
+.badge-disagree { color: var(--danger); border-color: rgba(255, 122, 122, .4); background: rgba(255, 122, 122, .1); margin-left: 8px; }

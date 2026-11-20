@@ -38,3 +38,13 @@ def admin_page():
 @router.get("/doctor")
 def doctor_page():
     return _page("doctor_dashboard.html")
+
+
+@router.get("/forgot-password")
+def forgot_password_page():
+    return _page("forgot_password.html")
+
+
+@router.get("/reset-password")
+def reset_password_page():
+    return _page("reset_password.html")

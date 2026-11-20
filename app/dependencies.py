@@ -1,4 +1,6 @@
 """Reusable checks that protect routes: who is logged in, and what are they allowed to do."""
+from datetime import timezone
+
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -33,6 +35,14 @@ def get_current_user(
     user = db.get(models.User, user_id)
     if user is None:
         raise expired
+
+    # A password change or reset ends every older login.
+    if user.password_changed_at is not None:
+        changed = user.password_changed_at
+        if changed.tzinfo is None:
+            changed = changed.replace(tzinfo=timezone.utc)
+        if int(payload.get("iat", 0)) < int(changed.timestamp()):
+            raise expired
 
     # Checked on every request, so revoking a doctor takes effect immediately
     # even if they still hold a valid token.

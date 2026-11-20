@@ -1,25 +1,29 @@
 """Doctor-only endpoints: upload an MRI, get a prediction, browse history."""
+import csv
 import io
 import json
 import logging
 import uuid
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import models
+from app import audit, models
 from app.config import settings
 from app.database import get_db
 from app.dependencies import require_doctor
-from app.ml.model_loader import ModelNotReadyError
+from app.ml.model_loader import ModelNotReadyError, class_names, review_threshold
 from app.ml.model_loader import status as model_status
 from app.ml.predict import run_prediction
-from app.schemas import MessageOut, PredictionOut, SummaryOut, prediction_list, prediction_out
+from app.report import build_report
+from app.models import utcnow
+from app.schemas import FeedbackRequest, MessageOut, PredictionOut, PredictResponse, SummaryOut, prediction_list, prediction_out
 
 log = logging.getLogger("neuroscan.doctor")
 
@@ -65,7 +69,7 @@ def _file_path(row: models.Prediction) -> Path:
     return path
 
 
-@router.post("/predict", response_model=PredictionOut)
+@router.post("/predict", response_model=PredictResponse)
 def predict(
     file: UploadFile = File(...),
     patient_ref: Optional[str] = Form(None),
@@ -96,6 +100,23 @@ def predict(
         log.exception("Prediction failed")
         raise HTTPException(status_code=500, detail="The model could not process this image.")
 
+    # An image the model should not classify (it does not look like a brain MRI) is
+    # reported back but never saved: no file on disk, no row in the history.
+    if result.get("rejected"):
+        checks = result.get("checks") or {}
+        audit.record(db, doctor, "image_rejected", target=doctor.email,
+                     detail=f"distance {checks.get('distance')} (limit {checks.get('distance_limit')})")
+        return {
+            "rejected": True,
+            "reject_reasons": result["reject_reasons"],
+            "predicted_class": result["predicted_class"],
+            "confidence": result["confidence"],
+            "probabilities": result["probabilities"],
+            "model_name": result["model_name"],
+            "low_confidence": True,
+            "checks": result["checks"],
+        }
+
     # Save the image under a random name, then record the result.
     settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{extension}"
@@ -121,23 +142,84 @@ def predict(
         stored_path.unlink(missing_ok=True)  # do not leave an orphan file behind
         raise
 
-    return prediction_out(row)
+    saved = prediction_out(row)
+    checks = result.get("checks")
+    # Flag for manual review when the confidence is below the model's own limit.
+    saved["low_confidence"] = bool(saved["low_confidence"] or (checks and not checks["confidence_ok"]))
+    saved["rejected"] = False
+    saved["reject_reasons"] = []
+    saved["checks"] = checks
+    return saved
+
+
+def _filtered(db: Session, doctor: models.User, q, cls, date_from, date_to):
+    query = db.query(models.Prediction).filter(models.Prediction.doctor_id == doctor.id)
+    if q and q.strip():
+        text = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")   # search for the typed text literally
+        like = f"%{text}%"
+        query = query.filter(
+            models.Prediction.patient_ref.ilike(like, escape="\\")
+            | models.Prediction.original_filename.ilike(like, escape="\\")
+        )
+    if cls:
+        query = query.filter(models.Prediction.predicted_class == cls)
+    if date_from:
+        query = query.filter(models.Prediction.created_at >= date_from)
+    if date_to:
+        query = query.filter(models.Prediction.created_at < date_to)   # the end is exclusive
+    return query.order_by(models.Prediction.created_at.desc(), models.Prediction.id.desc())
 
 
 @router.get("/history", response_model=List[PredictionOut])
 def history(
     limit: int = Query(100, ge=1, le=200),
+    q: Optional[str] = Query(None, max_length=80),
+    cls: Optional[str] = Query(None, alias="class", max_length=50),
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
     doctor: models.User = Depends(require_doctor),
     db: Session = Depends(get_db),
 ):
-    rows = (
-        db.query(models.Prediction)
-        .filter(models.Prediction.doctor_id == doctor.id)
-        .order_by(models.Prediction.created_at.desc(), models.Prediction.id.desc())
-        .limit(limit)
-        .all()
+    """Own scans, newest first. Optional filters: text in case reference or file name, class, dates."""
+    return prediction_list(_filtered(db, doctor, q, cls, date_from, date_to).limit(limit).all())
+
+
+def _csv_safe(value) -> str:
+    """Stops spreadsheet programs from running a cell that starts with = + - @ as a formula."""
+    text = "" if value is None else str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+@router.get("/history/export.csv")
+def history_csv(
+    q: Optional[str] = Query(None, max_length=80),
+    cls: Optional[str] = Query(None, alias="class", max_length=50),
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    doctor: models.User = Depends(require_doctor),
+    db: Session = Depends(get_db),
+):
+    """The same filtered history as a CSV file that opens in Excel."""
+    rows = _filtered(db, doctor, q, cls, date_from, date_to).limit(5000).all()
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["scan_id", "date_utc", "case_reference", "file_name", "predicted_class",
+                     "confidence_percent", "needs_manual_review", "doctor_feedback", "feedback_note", "model"])
+    for row in prediction_list(rows):
+        when = row["created_at"]
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        writer.writerow([
+            row["id"], when.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            _csv_safe(row["patient_ref"]), _csv_safe(row["original_filename"]), row["predicted_class"],
+            f"{row['confidence'] * 100:.2f}", "yes" if row["low_confidence"] else "no",
+            row["feedback"] or "", _csv_safe(row["feedback_note"]), _csv_safe(row["model_name"]),
+        ])
+    return Response(
+        "\ufeff" + buffer.getvalue(),   # the leading mark makes Excel read accents correctly
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="neuroscan-history.csv"', "Cache-Control": "no-store"},
     )
-    return prediction_list(rows)
 
 
 @router.get("/summary", response_model=SummaryOut)
@@ -153,7 +235,7 @@ def summary(doctor: models.User = Depends(require_doctor), db: Session = Depends
     return {
         "total": sum(by_class.values()),
         "by_class": by_class,
-        "classes": settings.CLASS_NAMES,
+        "classes": class_names(),
         "model_ready": ready,
         "model_message": None if ready else MODEL_OFFLINE_MESSAGE,
     }
@@ -174,6 +256,84 @@ def prediction_image(
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, max-age=3600"})
 
 
+def _heatmap_png(path: Path) -> bytes:
+    """Grad-CAM overlay for a saved scan. Raises HTTPException when it cannot be made."""
+    from app.ml.gradcam import make_heatmap
+
+    try:
+        with Image.open(path) as img:
+            img.load()
+            png, _ = make_heatmap(img)
+        return png
+    except ModelNotReadyError as exc:
+        log.error("Heatmap unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail=MODEL_OFFLINE_MESSAGE)
+    except Exception:
+        log.exception("Heatmap failed")
+        raise HTTPException(status_code=500, detail="The heatmap could not be created for this scan.")
+
+
+@router.get("/predictions/{prediction_id}/heatmap")
+def prediction_heatmap(
+    prediction_id: int,
+    doctor: models.User = Depends(require_doctor),
+    db: Session = Depends(get_db),
+):
+    """Grad-CAM heatmap over the scan (made on request, not stored)."""
+    row = _own_prediction(db, prediction_id, doctor)
+    path = _file_path(row)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Image file not found.")
+    return Response(_heatmap_png(path), media_type="image/png", headers={"Cache-Control": "private, max-age=600"})
+
+
+@router.get("/predictions/{prediction_id}/report")
+def prediction_report(
+    prediction_id: int,
+    doctor: models.User = Depends(require_doctor),
+    db: Session = Depends(get_db),
+):
+    """A PDF report for one of the doctor's own scans."""
+    row = _own_prediction(db, prediction_id, doctor)
+    path = _file_path(row)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Image file not found.")
+
+    # Show the picture the model saw (JPEG/PNG re-encoded as PNG so the PDF library can read it).
+    with Image.open(path) as img:
+        img.load()
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="PNG")
+        image_png = buf.getvalue()
+    try:
+        heatmap = _heatmap_png(path)
+    except HTTPException:
+        heatmap = None  # the report is still useful without the heatmap
+
+    saved = prediction_out(row)
+    pdf = build_report(row, doctor, image_png, heatmap, bool(saved["low_confidence"]))
+    name = f"neuroscan-report-{row.id}.pdf"
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+
+
+@router.post("/predictions/{prediction_id}/feedback", response_model=PredictionOut)
+def save_feedback(
+    prediction_id: int,
+    payload: FeedbackRequest,
+    doctor: models.User = Depends(require_doctor),
+    db: Session = Depends(get_db),
+):
+    """The doctor says whether they agree with the model's result, with an optional note."""
+    row = _own_prediction(db, prediction_id, doctor)
+    row.feedback = payload.verdict
+    row.feedback_note = (payload.note or "").strip() or None
+    row.feedback_at = utcnow()
+    db.commit()
+    db.refresh(row)
+    return prediction_out(row)
+
+
 @router.delete("/predictions/{prediction_id}", response_model=MessageOut)
 def delete_prediction(
     prediction_id: int,
@@ -183,7 +343,9 @@ def delete_prediction(
     """Deletes a scan record and its image file."""
     row = _own_prediction(db, prediction_id, doctor)
     path = _file_path(row)
+    scan_id = row.id
     db.delete(row)
     db.commit()
     path.unlink(missing_ok=True)
+    audit.record(db, doctor, "scan_deleted", target=doctor.email, detail=f"Scan #{scan_id}")
     return {"message": "Scan deleted."}

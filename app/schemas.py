@@ -6,7 +6,15 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.config import settings
+from app.ml.model_loader import review_threshold
+
+
+def check_password_rules(value: str) -> str:
+    if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
+        raise ValueError("must include at least one letter and one number.")
+    if len(value.encode("utf-8")) > 72:  # bcrypt limit
+        raise ValueError("is too long.")
+    return value
 
 
 # ------------------------------------------------------------------ requests
@@ -29,16 +37,31 @@ class DoctorSignup(BaseModel):
     @field_validator("password")
     @classmethod
     def strong_enough(cls, value: str) -> str:
-        if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
-            raise ValueError("must include at least one letter and one number.")
-        if len(value.encode("utf-8")) > 72:  # bcrypt limit
-            raise ValueError("is too long.")
-        return value
+        return check_password_rules(value)
 
 
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=1, max_length=200)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+    password: str = Field(min_length=8, max_length=64)
+
+    @field_validator("password")
+    @classmethod
+    def strong_enough(cls, value: str) -> str:
+        return check_password_rules(value)
+
+
+class FeedbackRequest(BaseModel):
+    verdict: str = Field(pattern="^(agree|disagree)$")
+    note: Optional[str] = Field(default=None, max_length=500)
 
 
 class RejectRequest(BaseModel):
@@ -84,6 +107,37 @@ class PredictionOut(BaseModel):
     model_name: Optional[str] = None
     low_confidence: bool
     created_at: datetime
+    feedback: Optional[str] = None
+    feedback_note: Optional[str] = None
+    feedback_at: Optional[datetime] = None
+
+
+class ReliabilityChecks(BaseModel):
+    max_prob: float
+    entropy: float
+    distance: Optional[float] = None
+    distance_limit: Optional[float] = None
+    confidence_limit: Optional[float] = None
+    entropy_limit: Optional[float] = None
+    distance_ok: Optional[bool] = None
+    confidence_ok: bool
+
+
+class PredictResponse(BaseModel):
+    """What the upload returns. A rejected image is not saved, so it has no id."""
+
+    rejected: bool = False
+    reject_reasons: List[str] = []
+    id: Optional[int] = None
+    patient_ref: Optional[str] = None
+    original_filename: Optional[str] = None
+    predicted_class: str
+    confidence: float
+    probabilities: Dict[str, float]
+    model_name: Optional[str] = None
+    low_confidence: bool = False
+    created_at: Optional[datetime] = None
+    checks: Optional[ReliabilityChecks] = None
 
 
 class ActivityOut(BaseModel):
@@ -94,6 +148,22 @@ class ActivityOut(BaseModel):
     confidence: float
     low_confidence: bool
     created_at: datetime
+
+
+class AuditOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    actor_name: Optional[str] = None
+    action: str
+    target_label: Optional[str] = None
+    detail: Optional[str] = None
+
+
+class ResetLinkOut(BaseModel):
+    message: str
+    link: Optional[str] = None   # only filled in when email is not set up, so the admin can pass it on
 
 
 class SummaryOut(BaseModel):
@@ -114,6 +184,7 @@ class AdminStatsOut(BaseModel):
     model_ready: bool
     model_message: Optional[str] = None
     model_arch: str
+    email_configured: bool = False
 
 
 # ------------------------------------------------------------------- helpers
@@ -127,8 +198,11 @@ def prediction_out(row) -> dict:
         "confidence": row.confidence,
         "probabilities": json.loads(row.probabilities),
         "model_name": row.model_name,
-        "low_confidence": row.confidence < settings.CONFIDENCE_THRESHOLD,
+        "low_confidence": row.confidence < review_threshold(),
         "created_at": row.created_at,
+        "feedback": row.feedback,
+        "feedback_note": row.feedback_note,
+        "feedback_at": row.feedback_at,
     }
 
 

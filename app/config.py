@@ -79,9 +79,12 @@ class Settings:
     ADMIN_NAME: str = _text("ADMIN_NAME", "System Administrator")
     ADMIN_EMAIL: str = _required("ADMIN_EMAIL").lower()
     ADMIN_PASSWORD: str = _required("ADMIN_PASSWORD")
+    # Where "new doctor registration" alerts and the test email go. Defaults to the admin login email.
+    ADMIN_NOTIFY_EMAIL: str = _text("ADMIN_NOTIFY_EMAIL", "") or ADMIN_EMAIL
 
     # --- Model ---
-    MODEL_ARCH: str = _text("MODEL_ARCH", "resnet50").lower()
+    # "auto" reads the architecture from the checkpoint. Only needed for plain state_dict files.
+    MODEL_ARCH: str = _text("MODEL_ARCH", "auto").lower()
     MODEL_PATH: Path = _path(_text("MODEL_PATH", "app/weights/model.pth"))
     CLASS_NAMES: List[str] = _list("CLASS_NAMES", "glioma,meningioma,notumor,pituitary")
     IMAGE_SIZE: int = _int("IMAGE_SIZE", 224)
@@ -89,6 +92,29 @@ class Settings:
     NORM_MEAN: List[float] = _floats("NORM_MEAN", "0.485,0.456,0.406")
     NORM_STD: List[float] = _floats("NORM_STD", "0.229,0.224,0.225")
     CONFIDENCE_THRESHOLD: float = _float("CONFIDENCE_THRESHOLD", 0.70)
+
+    # Out-of-distribution checks (used when the checkpoint contains them, as MS-CBAM-Net's does).
+    # Distance check: rejects images that do not look like the training MRIs.
+    # In the training notebook it caught 100% of 'other' images with 5.5% false rejections.
+    REJECT_ON_DISTANCE: bool = _bool("REJECT_ON_DISTANCE", True)
+    # Confidence/entropy check: in the notebook it caught only 1.6% of 'other' images and wrongly
+    # rejected 11% of real MRIs, so by default it only flags a scan for manual review.
+    REJECT_ON_CONFIDENCE: bool = _bool("REJECT_ON_CONFIDENCE", False)
+
+    # --- Login protection ---
+    # After this many wrong passwords for one email from one address, login is blocked for a while.
+    LOGIN_MAX_ATTEMPTS: int = _int("LOGIN_MAX_ATTEMPTS", 5)
+    LOGIN_WINDOW_MINUTES: int = _int("LOGIN_WINDOW_MINUTES", 15)
+
+    # --- Email (optional). Leave SMTP_HOST empty to print emails in the terminal instead. ---
+    APP_BASE_URL: str = _text("APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+    SMTP_HOST: str = _text("SMTP_HOST", "")
+    SMTP_PORT: int = _int("SMTP_PORT", 587)
+    SMTP_USER: str = _text("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_FROM: str = _text("SMTP_FROM", "NeuroScan AI <no-reply@neuroscan.local>")
+    SMTP_TLS: bool = _bool("SMTP_TLS", True)
+    RESET_TOKEN_MINUTES: int = _int("RESET_TOKEN_MINUTES", 30)
 
     # --- Uploads and folders ---
     MAX_UPLOAD_MB: int = _int("MAX_UPLOAD_MB", 10)

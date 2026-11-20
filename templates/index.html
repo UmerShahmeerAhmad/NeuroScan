@@ -157,6 +157,10 @@
               <dt><i></i>No tumor</dt>
               <dd>No tumor pattern found in the submitted slice.</dd>
             </div>
+            <div class="c-other">
+              <dt><i></i>Other</dt>
+              <dd>An image that does not match any of the tumor types the model knows.</dd>
+            </div>
           </dl>
         </div>
 
@@ -167,7 +171,7 @@
           <h3>Private by default</h3>
           <p>Uploaded images are shown only to the doctor who uploaded them. The administrator sees activity totals, never images or case references.</p>
           <h3>Honest about uncertainty</h3>
-          <p>Every result shows the full probability breakdown, and low-confidence readings are flagged for manual review.</p>
+          <p>Every result shows the full probability breakdown. Low-confidence readings are flagged for manual review, and an image that does not look like a brain MRI is turned away instead of being forced into a class.</p>
         </div>
       </div>
     </section>

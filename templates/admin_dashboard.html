@@ -38,11 +38,17 @@
       <button class="tab" role="tab" data-tab="pending" aria-selected="false" type="button">Pending reviews <span class="count" id="pendingCount" hidden>0</span></button>
       <button class="tab" role="tab" data-tab="doctors" aria-selected="false" type="button">Doctors</button>
       <button class="tab" role="tab" data-tab="activity" aria-selected="false" type="button">Activity</button>
+      <button class="tab" role="tab" data-tab="analytics" aria-selected="false" type="button">Analytics</button>
+      <button class="tab" role="tab" data-tab="audit" aria-selected="false" type="button">Audit log</button>
     </div>
 
     <!-- Overview -->
     <section class="tab-panel" id="tab-overview">
       <div id="modelAlert" role="alert" hidden></div>
+      <div class="alert alert-info" id="emailAlert" hidden>
+        <span id="emailAlertText"></span>
+        <button class="btn btn-ghost btn-sm" type="button" id="testEmailBtn">Send test email</button>
+      </div>
 
       <div class="alert alert-warn" id="pendingCallout" hidden>
         <span id="pendingCalloutText"></span>
@@ -146,6 +152,81 @@
         </div>
       </div>
     </section>
+
+    <!-- Analytics -->
+    <section class="tab-panel" id="tab-analytics" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Usage analytics</h2>
+            <p class="panel-note">Counts only. No images, case references or patient data. Deleted scans are not counted.</p>
+          </div>
+          <select class="input" id="daysSelect" aria-label="Period" style="width:auto">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+        </div>
+        <div class="ledger">
+          <div class="ledger-item"><div class="ledger-value" id="anScans">–</div><div class="ledger-label">Scans analyzed</div></div>
+          <div class="ledger-item"><div class="ledger-value" id="anRejected">–</div><div class="ledger-label">Images turned away</div></div>
+          <div class="ledger-item"><div class="ledger-value" id="anRate">–</div><div class="ledger-label">Rejection rate</div></div>
+          <div class="ledger-item"><div class="ledger-value" id="anReview">–</div><div class="ledger-label">Flagged for manual review</div></div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:24px">
+        <div class="panel-head"><h2>Scans per day</h2></div>
+        <div class="daychart" id="dayChart" role="img" aria-label="Bar chart of scans per day"></div>
+        <div class="daychart-axis"><span id="dayStart"></span><span id="dayMax"></span><span id="dayEnd"></span></div>
+      </div>
+      <div class="panel" style="margin-top:24px">
+        <div class="panel-head"><h2>Scans by predicted class</h2></div>
+        <div class="dist" id="anClassBars"></div>
+      </div>
+      <div class="panel" style="margin-top:24px">
+        <div class="panel-head">
+          <div>
+            <h2>Do doctors agree with the model?</h2>
+            <p class="panel-note" id="anFeedbackNote"></p>
+          </div>
+        </div>
+        <div class="dist" id="anFeedbackBars"></div>
+      </div>
+    </section>
+
+    <!-- Audit log -->
+    <section class="tab-panel" id="tab-audit" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Audit log</h2>
+            <p class="panel-note">Who did what, and when. Newest first. It never contains images or case references.</p>
+          </div>
+        </div>
+        <div class="toolbar">
+          <select class="input" id="auditFilter" aria-label="Filter by action">
+            <option value="">All actions</option>
+            <option value="doctor_signup">Doctor registered</option>
+            <option value="doctor_approved">Doctor approved</option>
+            <option value="doctor_rejected">Doctor rejected</option>
+            <option value="doctor_revoked">Access revoked</option>
+            <option value="admin_reset_link">Admin sent reset link</option>
+            <option value="password_reset_requested">Password reset requested</option>
+            <option value="password_reset_done">Password changed</option>
+            <option value="login_locked">Login locked</option>
+            <option value="image_rejected">Image turned away</option>
+            <option value="scan_deleted">Scan deleted</option>
+          </select>
+        </div>
+        <div class="empty" id="auditEmpty" hidden><strong>No entries</strong>Actions appear here as they happen.</div>
+        <div class="table-wrap" id="auditWrap">
+          <table class="data-table">
+            <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Details</th></tr></thead>
+            <tbody id="auditBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script src="/static/js/app.js"></script>
@@ -156,7 +237,7 @@
 
       var esc = NS.esc;
       var $ = function (id) { return document.getElementById(id); };
-      var TABS = ['overview', 'pending', 'doctors', 'activity'];
+      var TABS = ['overview', 'pending', 'doctors', 'activity', 'analytics', 'audit'];
       var pendingList = [];
       var doctorList = [];
 
@@ -172,6 +253,8 @@
         if (name === 'pending') loadPending();
         if (name === 'doctors') loadDoctors();
         if (name === 'activity') loadActivity();
+        if (name === 'analytics') loadAnalytics();
+        if (name === 'audit') loadAudit();
       }
       document.querySelectorAll('.tab').forEach(function (tab) {
         tab.addEventListener('click', function () { showTab(tab.dataset.tab); });
@@ -217,6 +300,12 @@
           } else {
             callout.hidden = true;
           }
+
+          var ea = $('emailAlert');
+          $('emailAlertText').textContent = s.email_configured
+            ? 'Email is set up. Doctors get approval notices and you get new-registration alerts.'
+            : 'Email is not set up, so no emails are sent (they are printed in the server terminal). Add the SMTP settings to .env to switch it on.';
+          ea.hidden = false;
 
           var modelAlert = $('modelAlert');
           if (s.model_ready) {
@@ -272,7 +361,8 @@
       function doctorRow(d) {
         var action = '';
         if (d.status === 'approved') {
-          action = '<button class="btn btn-danger btn-sm" type="button" data-action="revoke" data-id="' + d.id + '">Revoke access</button>';
+          action = '<button class="btn btn-ghost btn-sm" type="button" data-action="resetpw" data-id="' + d.id + '">Reset password</button>' +
+                   '<button class="btn btn-danger btn-sm" type="button" data-action="revoke" data-id="' + d.id + '">Revoke access</button>';
         } else if (d.status === 'rejected') {
           action = '<button class="btn btn-ok btn-sm" type="button" data-action="approve" data-id="' + d.id + '">Approve</button>';
         } else {
@@ -332,6 +422,91 @@
         }
       }
 
+      $('testEmailBtn').addEventListener('click', async function () {
+        var b = this; b.disabled = true;
+        try {
+          var r = await NS.api('/api/admin/test-email', { method: 'POST' });
+          if (r.sent) NS.toast('Test email sent to ' + r.to + '. Check your inbox and spam folder.', 'success');
+          else { $('emailAlert').className = 'alert alert-warn'; $('emailAlertText').textContent = 'Email could not be sent: ' + r.problem; }
+        } catch (err) { NS.toast(err.message, 'error'); }
+        b.disabled = false;
+      });
+
+      /* ------------------------------------------------------- analytics */
+      function bars(box, items, total) {
+        var max = Math.max.apply(null, items.map(function (i) { return i.n; }).concat([1]));
+        box.innerHTML = items.map(function (i) {
+          return '<div class="dist-row ' + (i.cls || '') + ' is-top">' +
+            '<div class="dist-label"><i></i>' + esc(i.label) + '</div>' +
+            '<div class="dist-track"><div class="dist-fill" style="--w:0%" data-w="' + (i.n / max * 100).toFixed(1) + '%"></div></div>' +
+            '<div class="dist-value">' + i.n + '</div></div>';
+        }).join('');
+        NS.animateBars(box);
+      }
+
+      async function loadAnalytics() {
+        try {
+          var a = await NS.api('/api/admin/analytics?days=' + encodeURIComponent($('daysSelect').value));
+          $('anScans').textContent = a.accepted;
+          $('anRejected').textContent = a.rejected;
+          $('anRate').textContent = (a.rejection_rate * 100).toFixed(1) + '%';
+          $('anReview').textContent = a.low_confidence;
+
+          var max = Math.max.apply(null, a.per_day.map(function (d) { return d.count; }).concat([1]));
+          $('dayChart').innerHTML = a.per_day.map(function (d) {
+            return '<i style="height:' + Math.max(d.count / max * 100, d.count ? 4 : 1) + '%" title="' + esc(d.date) + ': ' + d.count + ' scans"></i>';
+          }).join('');
+          $('dayChart').setAttribute('aria-label', 'Bar chart of scans per day, ' + a.accepted + ' scans in total');
+          $('dayStart').textContent = a.per_day[0].date;
+          $('dayEnd').textContent = a.per_day[a.per_day.length - 1].date;
+          $('dayMax').textContent = 'Busiest day: ' + max + ' scans';
+
+          bars($('anClassBars'), Object.keys(a.by_class).map(function (k) {
+            return { label: NS.className(k), n: a.by_class[k], cls: 'c-' + k };
+          }));
+
+          var f = a.feedback, given = f.agree + f.disagree;
+          $('anFeedbackNote').textContent = given
+            ? Math.round(f.agree / given * 100) + '% of ' + given + ' doctor opinions agree with the model.'
+            : 'No doctor has given feedback yet.';
+          bars($('anFeedbackBars'), [
+            { label: 'Agree', n: f.agree, cls: 'c-notumor' },
+            { label: 'Disagree', n: f.disagree, cls: 'c-glioma' },
+            { label: 'No feedback yet', n: f.none, cls: 'c-other' }
+          ]);
+        } catch (err) {
+          NS.toast(err.message, 'error');
+        }
+      }
+      $('daysSelect').addEventListener('change', loadAnalytics);
+
+      /* -------------------------------------------------------- audit log */
+      var ACTION_LABEL = {
+        doctor_signup: 'Doctor registered', doctor_approved: 'Doctor approved', doctor_rejected: 'Doctor rejected',
+        doctor_revoked: 'Access revoked', admin_reset_link: 'Admin sent reset link',
+        password_reset_requested: 'Password reset requested', password_reset_done: 'Password changed',
+        login_locked: 'Login locked', image_rejected: 'Image turned away', scan_deleted: 'Scan deleted'
+      };
+      async function loadAudit() {
+        try {
+          var q = $('auditFilter').value ? '?action=' + encodeURIComponent($('auditFilter').value) : '';
+          var rows = await NS.api('/api/admin/audit' + q);
+          $('auditEmpty').hidden = rows.length > 0;
+          $('auditWrap').hidden = rows.length === 0;
+          $('auditBody').innerHTML = rows.map(function (r) {
+            return '<tr>' +
+              '<td class="nowrap">' + esc(NS.fmtDate(r.created_at)) + '</td>' +
+              '<td>' + esc(r.actor_name || '–') + '</td>' +
+              '<td>' + esc(ACTION_LABEL[r.action] || r.action) + '</td>' +
+              '<td>' + esc(r.target_label || '–') + '</td>' +
+              '<td class="cell-sub">' + esc(r.detail || '') + '</td></tr>';
+          }).join('');
+        } catch (err) {
+          NS.toast(err.message, 'error');
+        }
+      }
+      $('auditFilter').addEventListener('change', loadAudit);
+
       /* ----------------------------------------------------- review actions */
       async function review(button, id, action, json, message) {
         button.disabled = true;
@@ -358,6 +533,35 @@
 
         if (action === 'approve') {
           await review(button, id, 'approve', undefined, name + ' can now log in.');
+          return;
+        }
+
+        if (action === 'resetpw') {
+          var ok = await NS.dialog({
+            title: 'Reset password',
+            message: name + ' will get a one-time link to choose a new password. Their current password and any open sessions stop working once they use it.',
+            confirmText: 'Send reset link'
+          });
+          if (!ok) return;
+          try {
+            var res = await NS.api('/api/admin/doctors/' + id + '/reset-password', { method: 'POST' });
+            if (res.link) {
+              var wrap = document.createElement('div');
+              wrap.innerHTML = '<h3>Reset link</h3><p class="modal-msg">' + esc(res.message) + '</p>' +
+                '<input class="input" id="resetLink" readonly>' +
+                '<div class="modal-actions"><button class="btn btn-primary" type="button" data-copy>Copy link</button><button class="btn btn-ghost" type="button" data-close>Close</button></div>';
+              var h = NS.openModal(wrap);
+              wrap.querySelector('#resetLink').value = res.link;
+              wrap.querySelector('[data-close]').addEventListener('click', h.close);
+              wrap.querySelector('[data-copy]').addEventListener('click', function () {
+                var f = wrap.querySelector('#resetLink'); f.select();
+                if (navigator.clipboard) navigator.clipboard.writeText(res.link);
+                NS.toast('Link copied.', 'success');
+              });
+            } else {
+              NS.toast(res.message, 'success');
+            }
+          } catch (err) { NS.toast(err.message, 'error'); }
           return;
         }
 

@@ -44,6 +44,7 @@
               <button class="toggle" type="button" data-toggle-password aria-pressed="false">Show</button>
             </div>
           </div>
+          <p class="auth-sub" style="margin:-4px 0 16px;text-align:right"><a href="/forgot-password">Forgot your password?</a></p>
           <button class="btn btn-primary btn-block" id="submitBtn" type="submit">Log in</button>
         </form>
 
@@ -62,6 +63,9 @@
       var button = document.getElementById('submitBtn');
       var params = new URLSearchParams(location.search);
 
+      if (params.get('reset')) {
+        NS.showAlert(alertBox, 'Your password was changed. Log in with the new one.', 'success');
+      }
       if (params.get('expired')) {
         NS.showAlert(alertBox, 'Your session has ended. Please log in again.', 'info');
       }

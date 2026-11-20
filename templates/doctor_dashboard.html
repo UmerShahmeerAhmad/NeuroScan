@@ -85,6 +85,14 @@
           <p class="panel-note">Only you can see these scans.</p>
         </div>
       </div>
+      <div class="filters" id="filters">
+        <div class="field grow"><label for="fQ">Case reference or file name</label><input class="input" id="fQ" type="search" placeholder="Search"></div>
+        <div class="field"><label for="fClass">Result</label><select class="input" id="fClass"><option value="">All results</option></select></div>
+        <div class="field"><label for="fFrom">From</label><input class="input" id="fFrom" type="date"></div>
+        <div class="field"><label for="fTo">To</label><input class="input" id="fTo" type="date"></div>
+        <button class="btn btn-ghost btn-sm" id="fClear" type="button">Clear</button>
+        <button class="btn btn-ghost btn-sm" id="fExport" type="button">Export CSV</button>
+      </div>
       <div class="empty" id="historyEmpty" hidden>
         <strong>No scans yet</strong>
         Analyzed scans are saved here so you can review them later.
@@ -168,6 +176,7 @@
         try {
           var result = await NS.api('/api/doctor/predict', { method: 'POST', form: form });
           renderResult(result);
+          ['fQ', 'fClass', 'fFrom', 'fTo'].forEach(function (id) { $(id).value = ''; });   // show the new scan
           await Promise.all([loadHistory(), loadSummary()]);
         } catch (err) {
           var box = $('resultBody');
@@ -182,7 +191,39 @@
         }
       });
 
+      function checksHtml(c) {
+        if (!c) return '';
+        var rows = '';
+        if (c.distance !== null && c.distance !== undefined) {
+          rows += '<dt>Looks like a training MRI</dt><dd>' + (c.distance_ok ? 'Yes' : 'No') +
+            ' <span class="muted">(distance ' + esc(c.distance) + ', limit ' + esc(c.distance_limit) + ')</span></dd>';
+        }
+        rows += '<dt>Model is confident</dt><dd>' + (c.confidence_ok ? 'Yes' : 'No') +
+          ' <span class="muted">(' + esc(NS.fmtPct(c.max_prob)) +
+          (c.confidence_limit ? ', needs ' + esc(NS.fmtPct(c.confidence_limit)) : '') + ')</span></dd>';
+        return '<h3 class="mini-title">Reliability checks</h3><dl class="detail-list">' + rows + '</dl>';
+      }
+
+      function renderRejected(r) {
+        var box = $('resultBody');
+        var reasons = (r.reject_reasons || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('');
+        box.innerHTML =
+          '<div class="result-enter">' +
+            '<div class="alert alert-warn"><strong>This image was not classified.</strong></div>' +
+            '<ul class="reason-list">' + reasons + '</ul>' +
+            '<p>Check that the file is a single brain MRI slice and try again. A tumor type is not shown, because ' +
+              'a guess on an image like this could mislead. Nothing from this upload was saved to your history.</p>' +
+            checksHtml(r.checks) +
+            '<details class="raw"><summary>Show the model\u2019s raw output</summary>' +
+              '<p class="muted">For reference only. This is not a reliable result.</p>' +
+              '<div class="dist">' + NS.distHtml(r.probabilities, r.predicted_class) + '</div>' +
+            '</details>' +
+          '</div>';
+        NS.animateBars(box);
+      }
+
       function renderResult(r) {
+        if (r.rejected) { renderRejected(r); return; }
         var box = $('resultBody');
         box.innerHTML =
           '<div class="result-enter">' +
@@ -191,11 +232,13 @@
               '<div class="result-conf"><span class="result-conf-value">' + esc(NS.fmtPct(r.confidence)) + '</span><span class="muted">confidence</span></div>' +
             '</div>' +
             (r.low_confidence
-              ? '<div class="alert alert-warn"><strong>Low confidence.</strong> The model is not sure about this scan. Check it manually before relying on the result.</div>'
+              ? '<div class="alert alert-warn"><strong>Review manually.</strong> The model\u2019s confidence is below its own limit for this scan. Check it before relying on the result.</div>'
               : '') +
             '<div class="dist">' + NS.distHtml(r.probabilities, r.predicted_class) + '</div>' +
+            checksHtml(r.checks) +
             '<p class="disclaimer">' + esc(DISCLAIMER) + '</p>' +
             '<p class="result-meta">Saved to your history' + (r.patient_ref ? ' as ' + esc(r.patient_ref) : '') + '.</p>' +
+            '<div class="actions"><button class="btn btn-ghost btn-sm" type="button" data-action="view" data-id="' + r.id + '">Heatmap and PDF report</button></div>' +
           '</div>';
         NS.animateBars(box);
       }
@@ -215,15 +258,52 @@
               '</div><div class="ledger-label">' + esc(NS.className(key)) + '</div></div>';
           });
           $('summary').innerHTML = items;
+          var sel = $('fClass');
+          if (sel.options.length === 1) {
+            s.classes.forEach(function (key) {
+              var o = document.createElement('option'); o.value = key; o.textContent = NS.className(key); sel.appendChild(o);
+            });
+          }
         } catch (err) {
           NS.toast(err.message, 'error');
         }
       }
 
       /* ------------------------------------------------------------ history */
+      function filterQuery() {
+        var p = new URLSearchParams();
+        if ($('fQ').value.trim()) p.set('q', $('fQ').value.trim());
+        if ($('fClass').value) p.set('class', $('fClass').value);
+        // Dates are your local days: from the start of "From" to the end of "To".
+        if ($('fFrom').value) p.set('date_from', new Date($('fFrom').value + 'T00:00:00').toISOString());
+        if ($('fTo').value) {
+          var end = new Date($('fTo').value + 'T00:00:00'); end.setDate(end.getDate() + 1);
+          p.set('date_to', end.toISOString());
+        }
+        return p.toString();
+      }
+      var filterTimer = null;
+      function refilter() { clearTimeout(filterTimer); filterTimer = setTimeout(loadHistory, 250); }
+      ['fQ', 'fClass', 'fFrom', 'fTo'].forEach(function (id) {
+        $(id).addEventListener(id === 'fQ' ? 'input' : 'change', refilter);
+      });
+      $('fClear').addEventListener('click', function () {
+        ['fQ', 'fClass', 'fFrom', 'fTo'].forEach(function (id) { $(id).value = ''; });
+        loadHistory();
+      });
+      $('fExport').addEventListener('click', async function () {
+        try {
+          var blob = await NS.api('/api/doctor/history/export.csv?' + filterQuery(), { blob: true });
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob); a.download = 'neuroscan-history.csv';
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+        } catch (err) { NS.toast(err.message, 'error'); }
+      });
+
       async function loadHistory() {
         try {
-          historyRows = await NS.api('/api/doctor/history');
+          historyRows = await NS.api('/api/doctor/history?' + filterQuery());
           renderHistory();
         } catch (err) {
           NS.toast(err.message, 'error');
@@ -233,6 +313,9 @@
       function renderHistory() {
         $('historyEmpty').hidden = historyRows.length > 0;
         $('historyWrap').hidden = historyRows.length === 0;
+        $('historyEmpty').innerHTML = filterQuery()
+          ? '<strong>No scans match</strong>Try different filters or press Clear.'
+          : '<strong>No scans yet</strong>Analyzed scans are saved here so you can review them later.';
         $('historyBody').innerHTML = historyRows.map(function (r) {
           return '<tr>' +
             '<td class="nowrap">' + esc(NS.fmtDate(r.created_at)) + '</td>' +
@@ -240,7 +323,8 @@
             '<td><span class="chip c-' + esc(r.predicted_class) + '"><i></i>' + esc(NS.className(r.predicted_class)) + '</span></td>' +
             '<td class="nowrap c-' + esc(r.predicted_class) + '">' + esc(NS.fmtPct(r.confidence)) +
               '<span class="mini"><i style="--w:' + (r.confidence * 100).toFixed(0) + '%"></i></span>' +
-              (r.low_confidence ? '<span class="badge badge-review">Review</span>' : '') + '</td>' +
+              (r.low_confidence ? '<span class="badge badge-review">Review</span>' : '') +
+              (r.feedback ? '<span class="badge badge-' + esc(r.feedback) + '">' + (r.feedback === 'agree' ? 'Agreed' : 'Disagreed') + '</span>' : '') + '</td>' +
             '<td><div class="actions">' +
               '<button class="btn btn-ghost btn-sm" type="button" data-action="view" data-id="' + r.id + '">View</button>' +
               '<button class="btn btn-danger btn-sm" type="button" data-action="delete" data-id="' + r.id + '">Delete</button>' +
@@ -265,9 +349,16 @@
         wrap.innerHTML =
           '<h3>Scan details</h3>' +
           '<div class="modal-split">' +
-            '<div class="viewer viewer-static">' +
-              '<img class="viewer-img" alt="Uploaded MRI image" hidden>' +
-              '<div class="viewer-empty">Loading image…</div>' +
+            '<div>' +
+              '<div class="viewer viewer-static">' +
+                '<img class="viewer-img" alt="Uploaded MRI image" hidden>' +
+                '<div class="viewer-empty">Loading image…</div>' +
+              '</div>' +
+              '<div class="actions" style="margin-top:10px">' +
+                '<button class="btn btn-ghost btn-sm" type="button" data-img="scan" aria-pressed="true">Original</button>' +
+                '<button class="btn btn-ghost btn-sm" type="button" data-img="heat" aria-pressed="false">Heatmap</button>' +
+              '</div>' +
+              '<p class="muted heat-note" hidden style="font-size:.8rem;margin-top:6px">Red marks the areas that influenced the model most. It is a visual aid, not a tumor outline.</p>' +
             '</div>' +
             '<div class="c-' + esc(row.predicted_class) + '">' +
               '<div class="result-head">' +
@@ -281,14 +372,88 @@
                 '<dt>Model</dt><dd>' + esc(row.model_name || '–') + '</dd>' +
               '</dl>' +
               '<div class="dist">' + NS.distHtml(row.probabilities, row.predicted_class) + '</div>' +
+              '<div class="fb">' +
+                '<h4 class="mini-title">Do you agree with this result?</h4>' +
+                '<div class="fb-row">' +
+                  '<button class="btn btn-ghost btn-sm" type="button" data-fb="agree" aria-pressed="false">Agree</button>' +
+                  '<button class="btn btn-ghost btn-sm" type="button" data-fb="disagree" aria-pressed="false">Disagree</button>' +
+                '</div>' +
+                '<textarea class="input textarea" id="fbNote" rows="2" maxlength="500" placeholder="Optional note, for example what you think it is"></textarea>' +
+                '<div class="actions" style="margin-top:8px"><button class="btn btn-primary btn-sm" type="button" data-fbsave disabled>Save feedback</button><span class="muted" id="fbStatus" style="font-size:.85rem"></span></div>' +
+              '</div>' +
             '</div>' +
           '</div>' +
           '<p class="disclaimer">' + esc(DISCLAIMER) + '</p>' +
-          '<div class="modal-actions"><button class="btn btn-ghost" type="button" data-close>Close</button></div>';
+          '<div class="modal-actions"><button class="btn btn-primary" type="button" data-pdf>Download PDF report</button><button class="btn btn-ghost" type="button" data-close>Close</button></div>';
 
+        var heatUrl = null;
         var handle = NS.openModal(wrap, {
           wide: true,
-          onClose: function () { if (blobUrl) URL.revokeObjectURL(blobUrl); }
+          onClose: function () { if (blobUrl) URL.revokeObjectURL(blobUrl); if (heatUrl) URL.revokeObjectURL(heatUrl); }
+        });
+        var imgEl = wrap.querySelector('img');
+        var emptyEl = wrap.querySelector('.viewer-empty');
+        var noteEl = wrap.querySelector('.heat-note');
+        function setMode(mode) {
+          wrap.querySelectorAll('[data-img]').forEach(function (b) {
+            b.setAttribute('aria-pressed', String(b.dataset.img === mode));
+            b.classList.toggle('btn-primary', b.dataset.img === mode);
+          });
+          noteEl.hidden = mode !== 'heat';
+        }
+        wrap.querySelectorAll('[data-img]').forEach(function (b) {
+          b.addEventListener('click', async function () {
+            if (b.dataset.img === 'scan') { if (blobUrl) imgEl.src = blobUrl; setMode('scan'); return; }
+            if (!heatUrl) {
+              b.disabled = true; b.textContent = 'Creating…';
+              try {
+                var hb = await NS.api('/api/doctor/predictions/' + id + '/heatmap', { blob: true });
+                heatUrl = URL.createObjectURL(hb);
+              } catch (err) {
+                NS.toast ? NS.toast(err.message || 'The heatmap could not be created.', 'error') : alert(err.message);
+                b.disabled = false; b.textContent = 'Heatmap'; return;
+              }
+              b.disabled = false; b.textContent = 'Heatmap';
+            }
+            imgEl.src = heatUrl; setMode('heat');
+          });
+        });
+        setMode('scan');
+
+        var verdict = row.feedback || null;
+        var saveBtn = wrap.querySelector('[data-fbsave]');
+        var noteEl2 = wrap.querySelector('#fbNote');
+        noteEl2.value = row.feedback_note || '';
+        function paintFb() {
+          wrap.querySelectorAll('[data-fb]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.fb === verdict)); });
+        }
+        paintFb();
+        wrap.querySelectorAll('[data-fb]').forEach(function (b) {
+          b.addEventListener('click', function () { verdict = b.dataset.fb; paintFb(); saveBtn.disabled = false; });
+        });
+        noteEl2.addEventListener('input', function () { if (verdict) saveBtn.disabled = false; });
+        saveBtn.addEventListener('click', async function () {
+          saveBtn.disabled = true;
+          try {
+            var saved = await NS.api('/api/doctor/predictions/' + id + '/feedback', { method: 'POST', json: { verdict: verdict, note: noteEl2.value.trim() || null } });
+            row.feedback = saved.feedback; row.feedback_note = saved.feedback_note;
+            wrap.querySelector('#fbStatus').textContent = 'Saved.';
+            renderHistory();
+          } catch (err) { NS.toast(err.message, 'error'); saveBtn.disabled = false; }
+        });
+        wrap.querySelector('[data-pdf]').addEventListener('click', async function (e) {
+          var btn = e.currentTarget; var label = btn.textContent;
+          btn.disabled = true; btn.textContent = 'Preparing PDF…';
+          try {
+            var pb = await NS.api('/api/doctor/predictions/' + id + '/report', { blob: true });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(pb); a.download = 'neuroscan-report-' + id + '.pdf';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+          } catch (err) {
+            NS.toast ? NS.toast(err.message || 'The report could not be created.', 'error') : alert(err.message);
+          }
+          btn.disabled = false; btn.textContent = label;
         });
         wrap.querySelector('[data-close]').addEventListener('click', handle.close);
         NS.animateBars(wrap);
