@@ -1,4 +1,4 @@
-"""Turns an uploaded image into a prediction."""
+﻿"""Turns an uploaded image into a prediction."""
 from typing import Dict, List
 
 from PIL import Image, ImageOps
@@ -128,7 +128,7 @@ def _predict_mscbam(loaded: LoadedModel, image: Image.Image) -> dict:
     reasons: List[str] = []
     if far and settings.REJECT_ON_DISTANCE:
         reasons.append(
-            "This image does not look like the brain MRI slices the model was trained on."
+            "Invalid image. Please upload a brain MRI scan."
         )
     if low_conf and settings.REJECT_ON_CONFIDENCE:
         reasons.append("The model is not confident enough about this image to classify it.")
